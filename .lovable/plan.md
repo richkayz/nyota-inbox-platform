@@ -1,7 +1,7 @@
 
-# Nyota Inbox — Technical Architecture Blueprint
+# Nyota Inbox — Technical Architecture Blueprint (v2)
 
-A multi-tenant, branded webmail platform that connects to existing **Plesk** mail servers over IMAP/SMTP. Email content is **never persisted** — only application metadata (tenants, users, branding, roles, audit) lives in our database. This document is the blueprint; implementation follows in phased milestones.
+Revised per review. Highlights: **no persisted mailbox passwords**, first-class `mailboxes` table with Super-Admin-only licensing, tamper-evident audit log, notification center, tenant dashboard, formal plugin framework, onboarding wizard, full white-label, strict Plesk abstraction, and multi-mail-server ready.
 
 ---
 
@@ -12,459 +12,632 @@ A multi-tenant, branded webmail platform that connects to existing **Plesk** mai
    Browser (SPA) ──►│  Lovable App  (TanStack Start)       │
    inbox.acme.com   │  - SSR + React 19                    │
                     │  - Server functions (Workers)        │
+                    │  - Encrypted server session (cookie) │
                     │  - Tenant resolver (Host header)     │
-                    │  - Auth, RBAC, branding, quotas      │
+                    │  - RBAC · branding · licensing       │
                     └───────┬───────────────────┬──────────┘
                             │                   │
-                 signed HMAC│token              │Postgres over TLS
-                            ▼                   ▼
+              signed HMAC   │                   │ Postgres/TLS
+              short-lived   ▼                   ▼
                  ┌────────────────────┐  ┌──────────────────────┐
                  │  Mail Gateway      │  │ Lovable Cloud (PG)   │
-                 │  (Node service)    │  │ tenants, users,      │
-                 │  - imapflow        │  │ user_roles, branding,│
-                 │  - nodemailer      │  │ subscriptions, audit │
-                 │  - Plesk REST/CLI  │  │ + RLS everywhere     │
-                 │  - Stateless       │  └──────────────────────┘
-                 └───┬───────────┬────┘
-                     │ IMAP/SMTP │ HTTPS (Plesk XML-API / REST / CLI)
+                 │  (Node, stateless) │  │ tenants, mailboxes,  │
+                 │  - imapflow        │  │ users, user_roles,   │
+                 │  - nodemailer      │  │ branding, subs,      │
+                 │  - Plesk REST/CLI  │  │ audit, notifications,│
+                 │  - Per-req creds   │  │ mail_servers, ...    │
+                 └───┬───────────┬────┘  └──────────────────────┘
+                     │ IMAP/SMTP │ HTTPS (Plesk)
                      ▼           ▼
               ┌────────────────────────────┐
-              │  Plesk Mail Server(s)      │
-              │  Dovecot · Postfix · Plesk │
+              │ Plesk Server Pool (N ≥ 1)  │
+              │  server-a · server-b · ... │
               └────────────────────────────┘
 ```
 
-Three tiers with strict responsibilities:
-
-- **Lovable App (edge, Cloudflare Workers)** — UI, auth session, RBAC, multi-tenant routing, admin operations. Never speaks IMAP/SMTP/Plesk directly.
-- **Mail Gateway (Node service, self-hosted alongside Plesk)** — the *only* component allowed to open raw sockets or reach Plesk. Stateless, per-request credentials.
-- **Postgres (Lovable Cloud / Supabase)** — application metadata + RLS. Zero email content.
-
-Why the gateway exists: Workers cannot open raw TCP → no `node-imap`/`nodemailer`. Plesk XML-API/CLI also assume a trusted network. The gateway is the trust and protocol boundary.
+Trust boundaries (unchanged):
+- **App**: UI, RBAC, session, licensing. Never talks to Plesk / IMAP / SMTP.
+- **Mail Gateway**: only component with mail-protocol or Plesk access. Stateless.
+- **Postgres**: application metadata only. Zero email content, zero mailbox passwords.
 
 ---
 
-## 2. Database Schema
+## 2. Credential Handling (revised)
 
-All tables live in `public`, all are RLS-enabled, all writes go through server functions. Roles are **never** stored on the users table.
+**Mailbox passwords are never persisted.** Not encrypted-at-rest, not in the DB, not on disk.
+
+Flow:
+
+1. User submits `{email, password}` at `/login`.
+2. App resolves tenant + assigned `mail_server` from Host.
+3. App calls `gateway.imap.verify(host, user, password)`.
+4. On success, app creates a **server-side encrypted session** (see §7):
+   - Session key = HMAC(cookie_id, server master key).
+   - Server-side session store holds: `user_id`, `tenant_id`, `mailbox_id`, and **`enc_creds`** encrypted with the derived session key.
+   - Cookie holds only `cookie_id` (opaque, HttpOnly, Secure, SameSite=Lax).
+5. Every subsequent mail request re-hydrates creds in memory only for the duration of that request and passes them to the gateway.
+6. On logout, session expiry, tenant suspension, or user disable → the session record and its `enc_creds` are wiped. No background job can access mail after logout.
+7. No "remember password" mode. No offline workers acting on the user's behalf. Vacation autoresponder and forwarding are set through Plesk under the tenant's service credentials, not the user's.
+
+Session storage: `sessions` table with short TTL (e.g. 12h idle, 24h absolute), rotating cookie id on privilege change. Session encryption key is a Lovable secret — losing it invalidates every session, which is the intended blast radius.
+
+---
+
+## 3. Database Schema
+
+Enums:
 
 ```text
--- Enums
-app_role                 ENUM(super_admin, company_admin, user)
-tenant_status            ENUM(active, suspended, provisioning)
-subscription_status      ENUM(trial, active, past_due, canceled)
+app_role              (super_admin, company_admin, user)
+tenant_status         (provisioning, active, suspended)
+mailbox_status        (active, suspended, deprovisioned)
+subscription_status   (trial, active, past_due, canceled)
+onboarding_step       (company, domain, dns, ssl, imap, smtp, branding, admin, mailboxes, welcome, live)
+notification_severity (info, warning, critical)
+audit_action          (login, logout, login_failed, password_reset_requested, password_reset_completed,
+                       mailbox_created, mailbox_updated, mailbox_deleted, mailbox_quota_changed,
+                       branding_updated, tenant_created, tenant_suspended, tenant_resumed,
+                       role_assigned, role_revoked, license_changed, subscription_updated,
+                       server_assigned, plugin_enabled, plugin_disabled)
+```
 
--- Core
-tenants(
-  id uuid pk, name, slug unique,
-  custom_domain citext unique,           -- inbox.acme.com
+Core tables:
+
+```text
+mail_servers                             -- multi-server ready
+  id uuid pk, label, region,
+  imap_host, imap_port, imap_tls,
+  smtp_host, smtp_port, smtp_tls,
+  plesk_endpoint, plesk_auth_ref,        -- ref to secret store; never plaintext
+  gateway_base_url,                      -- which gateway fronts this server
+  capacity_mailboxes int, status, created_at
+
+tenants
+  id uuid pk, name, slug unique, custom_domain citext unique,
+  mail_server_id fk→mail_servers,        -- tenant pinned to one server (movable)
   status tenant_status,
-  plesk_endpoint text,                   -- https://plesk.acme.com:8443
-  plesk_auth_ref text,                   -- reference to secret, not the secret
-  imap_host, imap_port, imap_tls bool,
-  smtp_host, smtp_port, smtp_tls bool,
-  licensed_mailboxes int,
-  feature_flags jsonb default '{}',      -- contacts, calendar, ai, guard...
-  created_at, updated_at)
+  licensed_mailboxes int not null default 0,   -- Super Admin only
+  feature_flags jsonb default '{}',
+  onboarding_state onboarding_step default 'company',
+  created_at, updated_at
 
-tenant_branding(
-  tenant_id pk fk→tenants,
+tenant_branding                          -- full white-label
+  tenant_id pk fk,
   logo_url, favicon_url, login_bg_url,
-  primary_color, secondary_color, accent_color,   -- oklch strings
-  welcome_message text,
-  theme_default ENUM(light, dark, system),
-  support_email)
+  primary_color, secondary_color, accent_color,
+  font_family_display, font_family_body,   -- Google font ids or self-hosted
+  welcome_message, support_email,
+  theme_default (light|dark|system)
 
-subscriptions(
-  id, tenant_id fk, plan, seats,
-  renews_at, status subscription_status,
-  external_ref text)                     -- Stripe/Paddle id later
+subscriptions
+  id, tenant_id fk, plan, seats, renews_at,
+  status subscription_status, external_ref
 
-users(
+users                                    -- app identity ONLY; no mail password
   id uuid pk, tenant_id fk,
   email citext, display_name,
-  encrypted_mail_password bytea,         -- AES-256-GCM, per-tenant DEK
-  mail_password_iv bytea, mail_password_tag bytea,
   enabled bool default true,
-  vacation_enabled bool, vacation_message text,
-  signature_html text,
-  theme_preference ENUM(light, dark, system),
-  locale text, last_login_at,
+  signature_html, vacation_enabled, vacation_message,
+  theme_preference, locale,
+  last_login_at, created_at, updated_at,
+  UNIQUE(tenant_id, email)
+
+user_roles                               -- separate table, mandatory
+  id, user_id fk, tenant_id fk, role app_role,
+  UNIQUE(user_id, role, tenant_id)
+
+mailboxes                                -- licensed resource
+  id uuid pk, tenant_id fk,
+  email citext, display_name,
+  quota_mb int not null,
+  status mailbox_status default 'active',
+  assigned_user_id uuid fk→users null,
+  mail_server_id fk→mail_servers,        -- inherits tenant default; overridable
+  created_by uuid fk→users,              -- must be a super_admin
   created_at, updated_at,
-  UNIQUE(tenant_id, email))
+  UNIQUE(tenant_id, email)
 
-user_roles(                              -- SEPARATE table, mandatory
-  id, user_id fk, tenant_id fk,
-  role app_role,
-  UNIQUE(user_id, role, tenant_id))
+sessions                                 -- server-side, encrypted creds live only here
+  id uuid pk, cookie_id_hash,
+  user_id fk, tenant_id fk, mailbox_id fk null,
+  enc_creds bytea, iv bytea, tag bytea,  -- AES-256-GCM, key derived per session
+  user_agent, ip inet,
+  created_at, last_seen_at, expires_at, revoked_at
 
-sessions(
-  id uuid pk, user_id fk, tenant_id fk,
-  refresh_token_hash, user_agent, ip,
-  created_at, last_seen_at, revoked_at, expires_at)
+password_reset_tokens
+  id, user_id fk, token_hash, expires_at, used_at
 
-password_reset_tokens(
-  id, user_id fk, token_hash, expires_at, used_at)
+audit_logs                               -- append-only, tamper-evident
+  id bigserial pk,
+  tenant_id fk null,                      -- null for platform-level
+  actor_user_id fk null,                  -- null for system
+  actor_role app_role,
+  action audit_action,
+  target_type text, target_id text,
+  previous_value jsonb, new_value jsonb,
+  ip inet, user_agent text,
+  created_at timestamptz default now(),
+  prev_hash bytea, row_hash bytea         -- hash chain for tamper detection
+  -- No UPDATE/DELETE grants (see §9)
 
-audit_log(
-  id, tenant_id, actor_user_id, action text,
-  target_type, target_id, meta jsonb, ip, created_at)
+notifications
+  id, tenant_id fk null, audience (super_admin|company_admin|user),
+  severity notification_severity, kind text,
+  title, body, link_url,
+  meta jsonb, created_at,
+  read_by jsonb default '{}'              -- {user_id: read_at}
 
-api_keys(                                -- Mail Gateway auth
-  id, tenant_id fk, key_hash, label,
-  scopes text[], expires_at, revoked_at)
+plugins                                  -- registry of installable modules
+  id text pk,                              -- 'contacts', 'calendar', 'ai', ...
+  name, version, description, icon,
+  required_role app_role, default_enabled bool,
+  routes jsonb, permissions text[], created_at
 
--- Reserved namespaces (created empty later, feature-flagged)
-contacts, contact_groups
-calendars, calendar_events
-tasks
-ai_threads, ai_messages
-shared_mailboxes, shared_mailbox_members
-guard_scans                              -- Nyota Email Guard results cache
+tenant_plugins                           -- per-tenant enablement
+  tenant_id fk, plugin_id fk,
+  enabled bool, config jsonb,
+  enabled_by uuid fk→users, enabled_at,
+  PRIMARY KEY (tenant_id, plugin_id)
+
+domain_verifications                     -- onboarding
+  id, tenant_id fk, domain,
+  dns_token, dns_verified_at,
+  ssl_status, ssl_verified_at,
+  imap_test_at, imap_ok bool,
+  smtp_test_at, smtp_ok bool,
+  updated_at
 ```
 
-Security helper (mandatory pattern):
+Every `CREATE TABLE public.*` is followed by explicit `GRANT`s. All tenant-scoped tables enable RLS and route access through `has_role(auth.uid(), _role, tenant_id)` SECURITY DEFINER.
 
-```sql
-create function public.has_role(_user uuid, _role app_role, _tenant uuid)
-returns boolean language sql stable security definer set search_path=public as $$
-  select exists (select 1 from user_roles
-                 where user_id=_user and role=_role and tenant_id=_tenant)
-$$;
-```
-
-Every RLS policy uses `has_role(auth.uid(), 'x', tenant_id)`. Every `CREATE TABLE` is followed by explicit `GRANT`s to `authenticated` / `service_role`.
+Mailboxes storage-used is read live from Plesk via the gateway (no persistent replica), cached briefly per request.
 
 ---
 
-## 3. Multi-Tenant Design
+## 4. Multi-Tenant Design
 
-- **Tenant identity = hostname.** `Host` header → `tenants.custom_domain` → `tenant_id`. Resolved in a request middleware and put on the request context; every server function reads it from context, never from client input.
-- **Isolation model:** shared database, shared schema, **row-level tenancy** enforced by RLS (`tenant_id = current_tenant()`), plus an app-level guard in every server function. Two independent checks.
-- **Custom domain onboarding:** tenant adds `CNAME inbox → <lovable-managed-apex>`; Lovable custom-domain flow issues SSL. `tenants.custom_domain` is unique.
-- **Fallback host:** `<slug>.nyota.one` always works even before the tenant configures a CNAME.
-- **Suspension:** `tenants.status = suspended` → middleware short-circuits into a branded suspension page; existing sessions are revoked.
-- **Per-tenant secrets:** Plesk credentials, encryption DEK, SMTP overrides — stored as secret references, never in plain columns.
+- Tenant identity = Host header → `tenants.custom_domain` → `tenant_id` in request context.
+- Shared DB, shared schema, RLS row isolation + app-layer guard.
+- **Multi-server**: `tenants.mail_server_id` selects the Plesk server; mailboxes may override. Gateway routes each request to the correct upstream. New servers register in `mail_servers` and immediately become assignable — no code change to onboard a server.
+- Suspension: `tenants.status='suspended'` → all sessions revoked, login blocked, branded suspension screen.
+- Fallback host `<slug>.nyota.one` always resolves; custom domain adds on top.
 
 ---
 
-## 4. User Roles & Permissions
-
-Three roles, stored only in `user_roles`.
+## 5. User Roles & Permissions
 
 | Capability | Super Admin | Company Admin | User |
 |---|---|---|---|
 | Create / suspend tenants | ✓ | | |
-| Configure Plesk endpoint & keys | ✓ | | |
-| Manage subscriptions & seat limits | ✓ | view | |
-| Platform analytics | ✓ | | |
-| Global password reset | ✓ | own tenant | own |
-| Create / disable users (within seat limit) | ✓ | ✓ | |
-| Assign roles (never `super_admin`) | ✓ | within tenant | |
-| Edit branding | ✓ | ✓ | |
-| Read / send mail | | own mailbox | ✓ |
+| Assign tenant to `mail_server` | ✓ | | |
+| Register / rotate Plesk credentials | ✓ | | |
+| Set `licensed_mailboxes` (purchased seats) | ✓ | | |
+| **Create a new mailbox** | ✓ | | |
+| Assign existing mailbox → user | ✓ | ✓ | |
+| Suspend / delete mailbox | ✓ | request only | |
+| Change mailbox quota | ✓ | request only | |
+| Reset any password | ✓ | own tenant | own |
+| Manage subscriptions | ✓ | view | |
+| Edit branding | ✓ | ✓ (own tenant) | |
+| Enable/disable plugins | ✓ | | |
+| Configure plugins (allowed ones) | ✓ | ✓ | |
+| Read platform audit | ✓ | own tenant only | own actions |
+| Read notifications | all | own tenant | own |
+| Read/send mail | | own mailbox | ✓ (own mailbox) |
 | Signature · vacation · theme | | | ✓ |
-| Feature flags per tenant | ✓ | view | |
 
-Enforcement is layered: **UI hide → server-fn middleware `requireRole()` → RLS policy**. UI hiding is cosmetic; the two server-side checks are the actual security boundary.
+Hard rule enforced in server-fn middleware **and** RLS:
+`mailboxes.INSERT` requires `has_role(auth.uid(), 'super_admin', NULL)`. Company Admins never insert. When `assigned mailboxes >= licensed_mailboxes`, the "Assign mailbox" action returns `license.exceeded` with copy:
+
+> *Mailbox limit reached. Contact Nyota One to purchase additional mailboxes.*
+
+Company Admin can only **assign** an already-provisioned unassigned mailbox to a user, and only when a free one exists.
 
 ---
 
-## 5. API Specification
+## 6. API Specification
 
-Two surfaces: **Lovable server functions** (browser → app) and **Mail Gateway HTTP API** (app → gateway). All payloads Zod-validated.
+Two surfaces (all Zod-validated, RFC 7807 errors).
 
-### 5.1 Lovable server functions (client-facing)
+### 6.1 Lovable server functions
 
 Auth
-- `auth.login({email, password})` — resolves tenant from Host, calls `gateway.imapVerify`, mints session cookie.
-- `auth.logout()`, `auth.me()`, `auth.requestPasswordReset({email})`, `auth.resetPassword({token, newPassword})`.
+- `auth.login`, `auth.logout`, `auth.me`, `auth.requestPasswordReset`, `auth.resetPassword`
 
 Tenants (super admin)
-- `tenants.list`, `tenants.create`, `tenants.update`, `tenants.suspend`, `tenants.setSeats`, `tenants.rotatePleskKey`.
+- `tenants.list/create/update/suspend/resume`
+- `tenants.assignMailServer({tenantId, mailServerId})`
+- `tenants.setLicensedMailboxes({tenantId, count})`
+- `tenants.rotatePleskKey`
 
-Users (company admin, scoped by tenant)
-- `users.list`, `users.create`, `users.disable`, `users.assignRole`, `users.resetPassword`.
+Mail servers (super admin)
+- `mailServers.list/create/update/disable`, `mailServers.testConnection`
+
+Mailboxes
+- `mailboxes.list({tenantId})` — super_admin all, company_admin own tenant
+- `mailboxes.create({tenantId, email, displayName, quotaMb})` — **super_admin only**; refuses when licensed limit reached
+- `mailboxes.assign({mailboxId, userId})` — super_admin + company_admin
+- `mailboxes.unassign`, `mailboxes.suspend`, `mailboxes.delete` — super_admin
+- `mailboxes.setQuota` — super_admin
+- `mailboxes.summary({tenantId})` → `{licensed, assigned, available, storageUsedMb, storageQuotaMb}`
+- `mailboxes.requestChange({...})` — company_admin submits a request; super_admin approves (audit-logged)
+
+Users (company admin, tenant-scoped)
+- `users.list/create/disable/assignRole/resetPassword`
 
 Branding
-- `branding.getByHost` (public, cached), `branding.update`.
+- `branding.getByHost` (public), `branding.update`
 
-Mail (all proxy to gateway; server fn attaches signed HMAC token)
-- `mail.listFolders`, `mail.listMessages({folder, page, search, filter})`
-- `mail.getMessage({folder, uid})`, `mail.sendMessage(mime|structured)`
-- `mail.move`, `mail.delete`, `mail.markRead`, `mail.flag`
-- `mail.attachment({uid, partId})` — streamed via `/api/mail/attachment/*`
+Mail (proxy to gateway with per-request session creds)
+- `mail.listFolders / listMessages / getMessage / send / move / delete / markRead / flag / attachment`
 
 Preferences
-- `me.updateSignature`, `me.updateVacation`, `me.updateTheme`, `me.updateLocale`.
+- `me.updateSignature / updateVacation / updateTheme / updateLocale`
 
-Feature flags (super admin)
-- `features.set({tenantId, flag, enabled})`.
+Audit
+- `audit.list({filters})` — Super Admin: all; Company Admin: own tenant only. Read-only.
 
-### 5.2 Mail Gateway HTTP API (internal)
+Notifications
+- `notifications.list`, `notifications.markRead`, `notifications.markAllRead`
+- `notifications.stream` (SSE) — future
 
-All requests carry `Authorization: Bearer <HMAC-signed short-lived JWT>` minted by Lovable (`iss=lovable-app`, `sub=user_id`, `tid=tenant_id`, `exp<=60s`). Gateway validates against a per-tenant shared secret.
+Plugins
+- `plugins.listCatalog` (super admin), `plugins.enableForTenant({tenantId, pluginId})`, `plugins.disableForTenant`, `plugins.configure({tenantId, pluginId, config})`
+
+Onboarding (super admin driving new tenant)
+- `onboarding.startTenant`, `onboarding.setDomain`, `onboarding.verifyDns`, `onboarding.verifySsl`, `onboarding.testImap`, `onboarding.testSmtp`, `onboarding.setBranding`, `onboarding.createFirstAdmin`, `onboarding.setLicensedMailboxes`, `onboarding.sendWelcome`, `onboarding.goLive`
+
+Dashboard
+- `dashboard.company({tenantId})` → aggregate stats (§10)
+- `dashboard.platform()` — super admin
+
+### 6.2 Mail Gateway HTTP API
+
+Server-aware; each call names the `mailServerId` so the gateway routes to the right upstream. Auth via short-lived HMAC-signed JWT (`exp ≤ 60s`, `jti` replay cache).
 
 ```
-POST /v1/imap/verify           { host, port, user, password } → { ok, capabilities }
-POST /v1/imap/folders          { creds } → [{ name, path, unseen, total }]
-POST /v1/imap/messages         { creds, folder, page, pageSize, query } → { items[], nextPage }
-POST /v1/imap/message          { creds, folder, uid } → { headers, body, parts[] }
-GET  /v1/imap/attachment       ?uid=&partId=  → binary stream
-POST /v1/imap/flag             { creds, uid, flag, value }
-POST /v1/imap/move             { creds, uid, from, to }
-POST /v1/imap/delete           { creds, uid, folder }
-POST /v1/smtp/send             { creds, message, appendToSent:true }
+POST /v1/imap/verify
+POST /v1/imap/folders
+POST /v1/imap/messages
+POST /v1/imap/message
+GET  /v1/imap/attachment
+POST /v1/imap/flag | /move | /delete
+POST /v1/smtp/send
 
-# Plesk provisioning (super_admin scope)
-POST /v1/plesk/mailbox.create  { domain, localPart, password, quotaMb }
-POST /v1/plesk/mailbox.disable { domain, localPart }
-POST /v1/plesk/mailbox.password{ domain, localPart, newPassword }
-GET  /v1/plesk/mailbox.list    ?domain=
+POST /v1/plesk/mailbox.create   { mailServerId, domain, localPart, password, quotaMb }
+POST /v1/plesk/mailbox.disable
+POST /v1/plesk/mailbox.delete
+POST /v1/plesk/mailbox.password
+POST /v1/plesk/mailbox.quota
+GET  /v1/plesk/mailbox.list?mailServerId=&domain=
+GET  /v1/plesk/mailbox.usage?mailServerId=&domain=
+
+# Onboarding
+POST /v1/verify/dns
+POST /v1/verify/ssl
+POST /v1/verify/imap
+POST /v1/verify/smtp
 ```
 
-Errors: RFC 7807 problem+json; gateway maps IMAP/SMTP/Plesk failures to stable codes (`imap.auth_failed`, `plesk.mailbox_exists`, `quota.exceeded`, ...).
+Error taxonomy: `imap.auth_failed`, `smtp.relay_denied`, `plesk.mailbox_exists`, `plesk.quota_exceeded`, `license.exceeded`, `server.unreachable`, `dns.not_pointing`, `ssl.not_issued`.
 
 ---
 
-## 6. Authentication Flow
-
-Single credential: the user's **mail-server password**. The app has no separate password store.
+## 7. Authentication Flow
 
 ```text
-1. Browser POSTs /login (email, password) to inbox.acme.com.
-2. App middleware: Host → tenant. Reject if suspended.
-3. auth.login server fn:
-     a. Mints short-lived HMAC token (tid, uid-placeholder, exp=60s).
-     b. Calls gateway /v1/imap/verify with tenant's imap host + user creds.
-     c. On success: upserts users row, records last_login_at,
-        encrypts mail password (AES-256-GCM, tenant DEK) if "remember" mode,
-        creates sessions row.
-4. Sets HttpOnly, Secure, SameSite=Lax cookie:
-     nyota_sid = <opaque> mapped to sessions.id
-5. Subsequent requests: cookie → session → user → tenant (must match Host).
-6. Refresh: sliding expiry via rotate on activity; hard cap 30 days.
-7. Password reset:
-     - Only when tenant enabled "app-managed reset" (requires Plesk creds).
-     - Token emailed, /reset-password page (public route) calls
-       gateway /v1/plesk/mailbox.password.
-8. Logout: revoke session row; clear cookie.
+1. POST /login (email, password) at inbox.acme.com
+2. Middleware: Host → tenant → server. Reject if suspended.
+3. auth.login:
+     a. Look up user + assigned mailbox in DB.
+     b. Mint 60s HMAC token, call gateway /v1/imap/verify.
+     c. On success:
+         - allocate cookie_id (random 32B)
+         - derive session_key = HKDF(server_master, cookie_id)
+         - encrypt {email, password} with AES-256-GCM(session_key)
+         - insert sessions row with enc_creds, iv, tag, TTL
+         - set HttpOnly Secure SameSite=Lax cookie: nyota_sid=<cookie_id>
+4. Every mail request:
+     - read cookie_id → derive key → decrypt enc_creds in memory
+     - forward creds in HMAC-signed call to gateway
+     - drop creds after response
+5. Idle expiry (12h) or absolute expiry (24h) → session hard-deleted.
+6. Logout / disable / tenant suspend → sessions.revoked_at set + row wiped.
+7. Password reset: /reset-password (public) → gateway → Plesk mailbox.password.
 ```
 
-Two credential-handling modes, chosen per tenant:
-
-- **Session-scoped (default, safest):** mail password kept only in the encrypted session record for the duration of the session, wiped on logout. Re-prompt on expiry.
-- **Encrypted at rest:** allows background operations (vacation autoresponder toggling, IMAP IDLE workers). Uses per-tenant DEK wrapped by a KEK stored in secrets manager.
-
-CSRF: the existing TanStack `createCsrfMiddleware` on server functions. Cookies are `SameSite=Lax`; state-changing calls also require CSRF token.
+No mail password ever leaves memory except as ciphertext in the `sessions` row, and only for that session's TTL.
 
 ---
 
-## 7. Plesk Integration Strategy
+## 8. Plesk Abstraction Strategy
 
-**Never touch the Plesk MySQL database directly.** Two supported channels, in order of preference:
+Plesk is **never** exposed to end users, Company Admins, or the browser.
 
-1. **Plesk REST API** (`/api/v2`, token auth) — modern, JSON, primary path.
-2. **Plesk XML-API** (`/enterprise/control/agent.php`) — fallback for older Plesk versions.
-3. **`plesk` CLI over SSH** — last resort for operations REST doesn't cover, wrapped by the Mail Gateway with a restricted shell user.
-
-Operations we perform through Plesk:
-- Create / disable / delete mailbox.
-- Set / reset mailbox password.
-- Set quota, autoresponder, forwarding.
-- List mailboxes for a domain (used to reconcile seat counts).
-
-Credentials:
-- Per-tenant Plesk API token stored in secrets manager, referenced by `tenants.plesk_auth_ref`.
-- Rotated via `tenants.rotatePleskKey` (super admin).
-- Requests from Lovable app carry a signed instruction; the gateway resolves the token locally so it never crosses the public internet from the app.
-
-Reconciliation job (future): nightly compare `users` ↔ `plesk.mailbox.list` per tenant, flag drift in audit log.
-
----
-
-## 8. Folder Structure
-
-```text
-src/
-  routes/
-    __root.tsx
-    index.tsx                     hostname-aware landing → /login or /mail
-    login.tsx
-    reset-password.tsx
-    suspended.tsx
-    _authenticated/
-      route.tsx                   auth + tenant gate (beforeLoad)
-      mail/
-        index.tsx                 inbox
-        $folder.tsx
-        $folder.$uid.tsx
-        compose.tsx
-      settings/
-        profile.tsx               (signature, vacation, theme, locale)
-        company.tsx               (company_admin: users, branding, seats)
-        admin.tsx                 (super_admin: tenants, subs, flags)
-    api/
-      public/
-        health.ts
-        webhook.plesk.ts          (future — inbound Plesk events)
-      mail/
-        attachment.$uid.ts        streams gateway attachment
-  lib/
-    tenant.ts                     Host → tenant resolver
-    branding.ts                   CSS var + head injector
-    crypto.ts                     AES-GCM helpers (edge-safe)
-    gateway-client.ts             typed client for Mail Gateway
-    auth.functions.ts
-    tenants.functions.ts
-    users.functions.ts
-    branding.functions.ts
-    mail.functions.ts
-    features.functions.ts
-  components/
-    mail/       Sidebar, MessageList, MessageView, Composer, SearchBar
-    branding/   BrandProvider, Logo, SuspendedScreen
-    admin/      TenantTable, UserTable, BrandingEditor, SeatMeter
-    ui/         shadcn primitives
-  modules/                        feature-flagged, added later
-    contacts/  calendar/  tasks/  ai/  guard/  shared-mailboxes/
-  styles.css
-
-mail-gateway/                     separate deployable
-  src/
-    routes/imap.*  smtp.*  plesk.*
-    lib/imap-pool.ts  smtp.ts  plesk-rest.ts  plesk-cli.ts
-    lib/auth.ts    (HMAC token verify)
-  package.json  Dockerfile
-```
-
-Rules: every server-function file is a thin wrapper (imports + `.functions.ts` exports only, per TanStack constraints). Business logic lives in `lib/*.server.ts` or the gateway.
+- Only the **Mail Gateway** speaks Plesk. All app calls go through the gateway API in §6.2.
+- Preferred channels: **REST API** → **XML-API** → **`plesk` CLI over SSH** (in that order).
+- Never touch Plesk MySQL directly.
+- Per-server credentials in secrets manager (`mail_servers.plesk_auth_ref` is a reference id).
+- The gateway performs a reconciliation sweep per tenant (nightly): compare `mailboxes` to `plesk.mailbox.list` — drift raises a `notifications` entry for Super Admin and an `audit_logs` row.
+- Multi-server: each `mailServerId` maps to its own Plesk endpoint. Tenants move between servers via `tenants.assignMailServer` + a gateway-run migration (out of scope for v1, hooks reserved).
 
 ---
 
 ## 9. Security Architecture
 
-Defence in depth:
-
-- **Transport:** TLS everywhere. HSTS on custom domains. Mail Gateway only reachable over HTTPS.
-- **App→Gateway auth:** short-lived HMAC-signed JWT (`exp≤60s`, per-tenant secret), replay-protected by `jti` cache in gateway (60s TTL).
-- **Cookies:** `HttpOnly`, `Secure`, `SameSite=Lax`; opaque session id, not a JWT.
-- **CSRF:** `createCsrfMiddleware` on all server functions; state-changing requests require CSRF token.
-- **RBAC:** three-layer — UI, server-fn `requireRole`, RLS policies. Any single layer failing does not open access.
-- **RLS:** every tenant-scoped table; policies use `has_role(auth.uid(), role, tenant_id)` SECURITY DEFINER.
-- **Grants:** explicit per-table `GRANT` to `authenticated`, no default schema privileges.
-- **Secrets:** Plesk tokens, DEKs, gateway HMAC secrets stored via secrets manager, referenced by id.
-- **Encryption at rest:** mail passwords AES-256-GCM with per-tenant DEK, KEK held by secrets manager. `iv` + `tag` stored alongside ciphertext.
-- **Password reset tokens:** stored hashed (SHA-256), single-use, 30-min expiry.
-- **Rate limiting:** per-IP + per-tenant on `/login`, `/reset-password`, gateway auth endpoints (token bucket at the edge).
-- **Audit:** every privileged action → `audit_log` (actor, target, meta, ip). Append-only, no client-side writes.
-- **Session revocation:** suspending a tenant or disabling a user marks `sessions.revoked_at`; middleware checks per request.
-- **Content isolation:** no email content ever hits our DB, logs, or observability stack. Gateway logs redact bodies and headers except `Message-Id`, `Date`, size.
-- **Attachment streaming:** flows through app as pass-through; no disk buffering.
-- **Nyota Email Guard hook (future):** on-fetch scan runs inside gateway; only verdict + metadata cached in `guard_scans`.
-
-Threats explicitly considered:
-- Cross-tenant data access → RLS + Host binding.
-- Credential theft → session-scoped mode + rotate on logout + short refresh window.
-- SSRF from admin-editable Plesk endpoint → allowlist scheme=https, port in {8443, 443}, DNS-rebinding-safe fetch.
-- Privilege escalation via role tampering → roles only writable by `super_admin` (RLS); UI never sends role fields.
+- **No stored mail passwords.** See §2 and §7.
+- **Sessions** encrypted server-side; only opaque cookie id on the client.
+- **Transport**: TLS everywhere, HSTS on custom domains.
+- **Gateway auth**: HMAC-signed JWT, `exp ≤ 60s`, replay-cached by `jti`.
+- **CSRF**: TanStack `createCsrfMiddleware` on all server functions.
+- **RBAC**: UI hide → server-fn `requireRole` → RLS. Three layers.
+- **RLS**: `has_role(auth.uid(), role, tenant_id)` SECURITY DEFINER everywhere; separate `user_roles` table.
+- **Grants**: explicit per-table `GRANT` to `authenticated` / `service_role`.
+- **Rate limiting**: `/login`, `/reset-password`, gateway verify endpoints — token bucket at the edge; failed logins trigger notification.
+- **SSRF**: Plesk endpoints allowlisted (`https://` + fixed ports); DNS-rebinding-safe fetch.
+- **Content isolation**: no email content in DB, logs, or telemetry. Gateway logs redact bodies/headers except `Message-Id`, `Date`, size.
+- **Audit immutability**: `audit_logs` grants only `INSERT` + `SELECT` to `authenticated`; no `UPDATE`/`DELETE` to any role. Nightly hash-chain verifier (`row_hash = sha256(prev_hash || row_payload)`) alerts on breaks. Even service_role is restricted via policy trigger that rejects UPDATE/DELETE.
+- **Least-privilege secrets**: Plesk tokens, session master key, gateway HMAC secrets — all in secrets manager, referenced by id.
 
 ---
 
-## 10. UI Navigation Map
+## 10. Company & Platform Dashboards
+
+### Company Dashboard (`/settings/company` home)
+
+Cards:
+- **Licensed mailboxes** (purchased)
+- **Assigned mailboxes**
+- **Available mailboxes** (with CTA disabled + "Contact Nyota One" copy when 0)
+- **Total storage** (sum of quotas)
+- **Storage used** (live from Plesk via gateway)
+- **Top 5 largest mailboxes** (table: email, used / quota, %)
+- **Recent logins** (last 20: user, ip, ua, ts) — from `audit_logs`
+- **Recent activity** (last 20: any tenant-scoped audit event)
+
+### Platform Dashboard (`/settings/admin`)
+
+- Tenants: count by status, seats used vs licensed
+- Per-server capacity + utilization
+- Failed-login trend
+- Notifications feed
+- Subscription renewals due in 30 days
+
+---
+
+## 11. Notification Center
+
+- Server-generated `notifications` rows; audience = `super_admin` (platform-level) or `company_admin` (tenant-level).
+- Bell icon in header with unread count; drawer lists items grouped by severity.
+- Triggers:
+  - Subscription expiry (30/7/1 day)
+  - Quota warning (mailbox ≥ 80% / 95% used)
+  - Failed logins (≥ N in window per tenant/user)
+  - Storage nearing capacity (tenant total)
+  - SSL expiry (30/7 day)
+  - Domain verification status change
+  - System maintenance windows
+  - Backup status (success/failure)
+  - Plesk reconciliation drift
+- Delivery channels: in-app now; email + webhook reserved (plugin-driven later).
+
+---
+
+## 12. Audit Logging
+
+Every entry: `actor_user_id`, `actor_role`, `tenant_id`, `action`, `target_type/id`, `previous_value`, `new_value`, `ip`, `user_agent`, `created_at`, hash-chain fields.
+
+Actions covered (minimum): `login`, `logout`, `login_failed`, `password_reset_requested`, `password_reset_completed`, `mailbox_created`, `mailbox_updated`, `mailbox_deleted`, `mailbox_quota_changed`, `branding_updated`, `tenant_created/suspended/resumed`, `role_assigned/revoked`, `license_changed`, `subscription_updated`, `server_assigned`, `plugin_enabled/disabled`.
+
+Immutability enforced by grants + policy trigger; verified nightly by hash-chain check (raises `notifications` on break).
+
+---
+
+## 13. Customer Onboarding Wizard
+
+Wizard state lives on `tenants.onboarding_state` + `domain_verifications`. Only Super Admin drives it.
+
+Steps (each is resumable, produces an audit entry):
+
+1. **Company Details** — name, slug, contact.
+2. **Domain** — enter primary domain; system computes `inbox.<domain>` and CNAME target.
+3. **DNS Verification** — TXT + CNAME check via gateway.
+4. **SSL Verification** — Lovable custom-domain SSL check.
+5. **IMAP Test** — sample credentials tested against assigned `mail_server`.
+6. **SMTP Test** — send probe.
+7. **Company Branding** — logo, favicon, colors, fonts, welcome bg.
+8. **Company Admin** — first admin user (invite email w/ reset token).
+9. **Licensed Mailboxes** — Super Admin sets purchased count.
+10. **Welcome Email** — sent via gateway from a Nyota system address.
+11. **Go Live** — `tenants.status='active'`.
+
+UI: left rail step tracker, right pane current step, "resume later" persists state.
+
+---
+
+## 14. White-Label Support
+
+Per-tenant, driven by `tenant_branding`:
+- logo, favicon, login background image
+- primary / secondary / accent colors (oklch)
+- display + body font families (from an allowlist or self-hosted asset)
+- company name, welcome message, support email
+- default theme (light/dark/system) — user preference overrides
+
+Implementation: `BrandProvider` loads branding via `branding.getByHost` (cached), injects CSS variables and `<link rel="preload">` for fonts, sets `<title>` and favicon. All components use semantic tokens exclusively — no hardcoded colors — so switching tenants re-skins everything.
+
+Nyota product chrome (badges, footer credits) is hidden per tenant plan flag.
+
+---
+
+## 15. Folder Structure
 
 ```text
-inbox.<tenant>.com
-├── /                        redirect: authed → /mail, else → /login
-├── /login                   branded login (logo, welcome, bg)
-├── /reset-password?token=…  public
-├── /suspended               branded suspension screen
-└── /_authenticated          (gate: session + tenant match)
-    ├── /mail                inbox (default folder)
-    │   ├── /mail/$folder    Sent, Drafts, Spam, Trash, custom
-    │   ├── /mail/$folder/$uid   message view
-    │   └── /mail/compose        slide-over / full-screen on mobile
-    ├── /settings
-    │   ├── /settings/profile    signature · vacation · theme · locale · password
-    │   ├── /settings/company    [company_admin] users, branding, seats, domain
-    │   └── /settings/admin      [super_admin] tenants, subs, flags, audit
-    └── /help                    tenant.supportEmail, docs
+src/
+  routes/
+    __root.tsx
+    index.tsx                    hostname-aware landing
+    login.tsx
+    reset-password.tsx
+    suspended.tsx
+    _authenticated/
+      route.tsx                  session + tenant gate
+      mail/{index,$folder,$folder.$uid,compose}.tsx
+      settings/
+        profile.tsx
+        company.tsx              dashboard + users + branding + mailbox requests
+        admin.tsx                super admin console
+        onboarding.$tenantId.tsx wizard
+      notifications.tsx
+    api/
+      public/{health,webhook.plesk}.ts
+      mail/attachment.$uid.ts
+  lib/
+    tenant.ts                    host → tenant + mail_server
+    branding.ts
+    session.ts                   encrypted server session helpers
+    crypto.ts                    AES-GCM + HKDF (edge-safe)
+    gateway-client.ts
+    auth.functions.ts
+    tenants.functions.ts
+    mail-servers.functions.ts
+    mailboxes.functions.ts
+    users.functions.ts
+    branding.functions.ts
+    mail.functions.ts
+    audit.functions.ts
+    notifications.functions.ts
+    plugins.functions.ts
+    onboarding.functions.ts
+    dashboard.functions.ts
+  components/
+    mail/    branding/    admin/    onboarding/    notifications/    ui/
+  modules/                       plugin implementations
+    contacts/   calendar/   tasks/   ai/   guard/   shared-mailboxes/
+    reports/    billing/
+    _framework/ manifest.ts, loader.ts, registry.ts
+  styles.css
+
+mail-gateway/                    separate deployable (Node)
+  src/routes/{imap,smtp,plesk,verify}.*
+  src/lib/{imap-pool,smtp,plesk-rest,plesk-cli,auth,reconcile}.ts
+  Dockerfile
 ```
 
-Layout shells:
-- **Desktop:** three-pane mail (sidebar · list · reading pane).
-- **Tablet:** two-pane collapsible.
-- **Mobile:** single-pane stack with back-nav; FAB for compose; bottom sheet for filters.
-
-Global chrome: brand logo (left), search (center), theme toggle + avatar menu (right). Admin surfaces reuse the same shell with a scoped sidebar.
+Every server-fn file is a thin wrapper; logic lives in `*.server.ts` or the gateway.
 
 ---
 
-## 11. Deployment Architecture
+## 16. Plugin Framework
+
+Every non-core capability ships as a **plugin** with a static manifest — no core changes needed to enable one.
+
+Manifest contract:
+
+```ts
+export const manifest: PluginManifest = {
+  id: 'contacts',
+  name: 'Contacts',
+  version: '1.0.0',
+  icon: 'users',
+  requiredRole: 'user',
+  featureFlag: 'contacts',
+  routes: [{ path: '/contacts', role: 'user' }],
+  serverFunctions: () => import('./functions'),
+  migrations: () => import('./db/migrations'),
+  navEntry: { label: 'Contacts', path: '/contacts' },
+  permissions: ['contacts:read', 'contacts:write'],
+  gatewayHooks: ['beforeMessage'], // optional
+};
+```
+
+Runtime:
+- `plugins` registry table lists installable plugins; `tenant_plugins` toggles per tenant.
+- App boot scans `src/modules/*/manifest.ts`, registers routes under `_authenticated/`, and shows nav entries only when: plugin exists in registry, `tenant_plugins.enabled=true`, and user role satisfies `requiredRole`.
+- Each plugin owns its tables and RLS. Cross-plugin data flows through documented server functions.
+- Gateway-side plugins register signed hook implementations (e.g. Nyota Email Guard's `beforeMessage` scan). Verdict + metadata cached in plugin tables — never raw content.
+
+Core module slots reserved now: **Mail (core)**, **Contacts**, **Calendar**, **Tasks**, **AI Assistant**, **Nyota Email Guard**, **Shared Mailboxes**, **Reports**, **Billing**.
+
+---
+
+## 17. UI Navigation Map
+
+```text
+inbox.<tenant>.<tld>
+├── /                             redirect: authed → /mail else /login
+├── /login                        branded
+├── /reset-password?token=…
+├── /suspended
+└── /_authenticated               (session + tenant gate)
+    ├── /mail
+    │   ├── /mail/$folder
+    │   ├── /mail/$folder/$uid
+    │   └── /mail/compose
+    ├── /notifications
+    ├── /settings
+    │   ├── /settings/profile
+    │   ├── /settings/company         Dashboard · Users · Branding · Mailboxes (view + assign + request) · Plugins (configure)
+    │   └── /settings/admin           Platform dash · Tenants · Mail servers · Licensing · Subscriptions · Plugins (enable) · Audit
+    │       └── /settings/admin/onboarding/$tenantId   11-step wizard
+    └── /help
+```
+
+Layouts: three-pane desktop, two-pane tablet, single-pane mobile with FAB compose. All chrome themed per tenant.
+
+---
+
+## 18. Deployment Architecture
 
 ```text
 Cloudflare (Lovable-managed)
-  ├── Edge Workers                Lovable App (SSR + server fns)
-  ├── R2                          static assets, logos, favicons
-  └── Custom domains + SSL        per-tenant inbox.<company>.<tld>
+  ├── Edge Workers               App (SSR + server fns)
+  ├── R2                         static/branding assets
+  └── Custom domains + SSL       per-tenant inbox.<company>.<tld>
 
 Lovable Cloud
-  └── Postgres (Supabase)         primary + PITR backups
+  └── Postgres (Supabase)        + PITR backups, secrets manager
 
-Customer / Nyota-managed infra
-  └── Mail Gateway (Node)         Fly.io region near Plesk, or VM in Plesk network
-        ├── /v1/imap/*  /smtp/*
-        ├── /v1/plesk/*
-        └── HMAC auth · rate limit · IP allowlist
+Nyota-managed
+  └── Mail Gateway fleet (Node, Docker)
+        - Deployed once per region OR per Plesk cluster
+        - Stateless, horizontal, blue/green
+        - HMAC auth · IP allowlist per Plesk server
+        - Reads mail_servers config from app via signed callback
 
-Existing Plesk servers                unchanged
+Customer Plesk servers (many, unmodified)
+  server-a.plesk … server-N.plesk
 ```
 
-Environments: **dev**, **preview** (per branch), **prod**. Each has its own secrets, gateway URL, and DB. Zero email data persisted in any environment.
-
-Observability:
-- App: request logs (redacted), server-fn traces, error reporting.
-- Gateway: structured logs (no bodies), Prom metrics (`imap_ops_total`, `plesk_calls_total`, latency histograms), health endpoint.
-- DB: Supabase logs + slow-query alerting.
-
-CI/CD:
-- App: Lovable-managed deploy on merge.
-- Gateway: separate repo/pipeline (Docker image, versioned, blue-green on Fly).
-- DB migrations: forward-only, reviewed, applied via CI before app deploy.
-
-Scaling: Workers are horizontal; gateway is horizontal + stateless (IMAP pooling per instance); Postgres vertical + read replicas when needed.
+Envs: dev / preview / prod, each with its own secrets, gateway URL(s), DB, and mail-server registry. Zero email data persisted in any env. Observability: redacted request logs, server-fn traces, gateway Prom metrics (`imap_ops_total`, `plesk_calls_total`, latency), Postgres slow-query alerts. CI: forward-only migrations gated before app deploy; gateway image versioned and rolled independently.
 
 ---
 
-## 12. Future Plugin / Module Architecture
+## 19. Milestones (post-approval, small & testable)
 
-Each future capability is a **module** under `src/modules/<name>/` plus optional `mail-gateway/plugins/<name>/`.
-
-Contract per module:
-```text
-modules/<name>/
-  manifest.ts        id, title, icon, routes[], requiredRole, featureFlag
-  routes/*           TanStack routes registered under /_authenticated
-  functions/*        server functions (own namespace)
-  db/                migrations (own tables, own RLS)
-  ui/                components, own nav entry
-  gateway.ts         optional: typed client for gateway plugin
-```
-
-- **Discovery:** modules register via a static manifest imported by `_authenticated/route.tsx`; navigation entries appear only when `tenants.feature_flags[<name>] === true` **and** the user's role passes `requiredRole`.
-- **Isolation:** each module owns its tables and RLS. No module reads another module's tables directly — cross-module needs go through a documented server function.
-- **Gateway plugins:** modules that need mail-side hooks (e.g. Nyota Email Guard scanning on fetch) register a gateway plugin exposing `beforeMessage`, `afterSend`, etc. Gateway loads plugins from a signed manifest.
-- **Feature flags:** stored on `tenants.feature_flags`; toggled by super_admin; UI reflects immediately.
-- **Roadmap slots:** Contacts, Calendar, Tasks, AI Assistant, Nyota Email Guard, Shared Mailboxes, Rules/Filters, Mobile PWA push.
+1. **Foundation** — Lovable Cloud, schema (tenants, mail_servers, users, user_roles, mailboxes, sessions, audit_logs, notifications, plugins, tenant_plugins, tenant_branding, subscriptions, domain_verifications), RLS, grants, hash-chain audit, design tokens.
+2. **Session + Auth** — encrypted server session, login/logout, password reset, `_authenticated` gate, sign-in affordance.
+3. **Mail Gateway contract + mock** — HTTP spec frozen; mock gateway ships so app is testable.
+4. **Mailboxes & Licensing** — mailboxes CRUD (Super Admin only for create/quota), assign flow for Company Admin, "limit reached" copy, dashboard summary.
+5. **Webmail UI** — folders, list, view, compose, search, attachments.
+6. **Preferences** — signature, vacation, theme, locale.
+7. **Company Admin console** — users, branding editor, dashboard, mailbox requests.
+8. **Super Admin console** — tenants, mail_servers, subscriptions, licenses, audit viewer.
+9. **Onboarding wizard** — 11 steps with resume.
+10. **Notification center** — feed + generators for the listed triggers.
+11. **Plugin framework** — manifest loader, registry, tenant toggles; scaffold Contacts as first plugin.
+12. **Polish + a11y + mobile**, then reserved plugin slots (Calendar, Tasks, AI, Guard, Shared Mailboxes, Reports, Billing).
 
 ---
 
-## Open Decisions (needed to start Phase 1 build)
+## 20. Open Decisions
 
-1. Mail Gateway — greenfield reference implementation from us, or existing infra?
-2. Password handling default: session-scoped vs. encrypted-at-rest?
-3. Nyota One official palette (exact oklch values) — confirm defaults or supply brand tokens.
-4. Custom-domain flow: CNAME to Lovable apex (recommended) vs. A-record.
-5. Plesk versions in scope (drives REST vs. XML-API vs. CLI mix).
+1. **Session TTL** — 12h idle / 24h absolute OK, or longer?
+2. **Mail Gateway ownership** — greenfield reference implementation from us, or existing infra?
+3. **Failed-login threshold + lockout policy** — proposed 5 in 15 min → notify + soft-lock 15 min. Confirm.
+4. **Nyota One official palette + fonts** — confirm oklch values and font pair.
+5. **Custom-domain flow** — CNAME to Lovable apex (recommended) vs. A-record.
+6. **Plesk versions in scope** — drives REST vs. XML-API vs. CLI mix.
+7. **Multi-server v1 posture** — single production Plesk at launch with schema/hooks already multi-server, or launch with two servers to prove routing?
 
-Approve this blueprint (or amend the sections you want changed) and I will begin Phase 1: Foundation — schema, RLS, hostname resolver, branding pipeline, and the design system — with the Mail Gateway spec locked as the contract for Phase 3.
+Approve or amend, and I'll begin Milestone 1.
