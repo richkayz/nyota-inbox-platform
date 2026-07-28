@@ -296,7 +296,18 @@ function MailShell() {
           )}
         >
           {active ? (
-            <MessageDetail message={active} onBack={() => setDetailOpen(false)} />
+            <MessageDetail
+              message={active}
+              onBack={() => setDetailOpen(false)}
+              onReply={() => {
+                setReplyDefaults({ to: active.from.email, subject: `Re: ${active.subject}` });
+                setComposerOpen(true);
+              }}
+              onForward={() => {
+                setReplyDefaults({ to: "", subject: `Fwd: ${active.subject}` });
+                setComposerOpen(true);
+              }}
+            />
           ) : (
             <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
               Select a message
@@ -304,6 +315,13 @@ function MailShell() {
           )}
         </section>
       </div>
+
+      <Composer
+        open={composerOpen}
+        onOpenChange={setComposerOpen}
+        defaultTo={replyDefaults?.to}
+        defaultSubject={replyDefaults?.subject}
+      />
     </div>
   );
 }
