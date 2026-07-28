@@ -373,7 +373,7 @@ function MessageRow({
   );
 }
 
-function MessageDetail({ message, onBack }: { message: MailMessage; onBack: () => void }) {
+function MessageDetail({ message, onBack, onReply, onForward }: { message: MailMessage; onBack: () => void; onReply: () => void; onForward: () => void }) {
   const initials = message.from.name
     .split(" ")
     .map((s) => s[0])
@@ -392,10 +392,10 @@ function MessageDetail({ message, onBack }: { message: MailMessage; onBack: () =
           <X className="h-4 w-4" />
         </button>
         <div className="flex flex-1 flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => toast("Reply — coming next module")}>
+          <Button variant="outline" size="sm" onClick={onReply}>
             <Reply className="mr-1 h-4 w-4" /> Reply
           </Button>
-          <Button variant="outline" size="sm" onClick={() => toast("Forward — coming next module")}>
+          <Button variant="outline" size="sm" onClick={onForward}>
             <Forward className="mr-1 h-4 w-4" /> Forward
           </Button>
           <Button
