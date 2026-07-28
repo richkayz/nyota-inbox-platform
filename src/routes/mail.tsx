@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   Inbox,
@@ -18,6 +18,9 @@ import {
   Menu,
   X,
   Sparkles,
+  Settings,
+  Building2,
+  Globe2,
 } from "lucide-react";
 import { useTenant } from "@/components/branding/BrandProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
@@ -28,6 +31,8 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { Composer } from "@/components/mail/Composer";
+import { NotificationDrawer } from "@/components/mail/NotificationDrawer";
 
 export const Route = createFileRoute("/mail")({
   head: () => ({
