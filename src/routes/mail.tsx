@@ -64,6 +64,8 @@ function MailShell() {
   const [query, setQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [replyDefaults, setReplyDefaults] = useState<{ to: string; subject: string } | null>(null);
 
   useEffect(() => {
     if (!session) navigate({ to: "/login" });
@@ -126,6 +128,8 @@ function MailShell() {
           />
         </div>
 
+        <NotificationDrawer />
+
         <button
           onClick={toggle}
           aria-label="Toggle theme"
@@ -133,6 +137,24 @@ function MailShell() {
         >
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </button>
+
+        <Link
+          to="/settings"
+          className="hidden rounded-md p-2 text-muted-foreground hover:bg-muted sm:inline-flex"
+          aria-label="Settings"
+        >
+          <Settings className="h-4 w-4" />
+        </Link>
+
+        {session.role !== "user" && (
+          <Link
+            to={session.role === "super_admin" ? "/super-admin" : "/admin"}
+            className="hidden rounded-md p-2 text-muted-foreground hover:bg-muted sm:inline-flex"
+            aria-label="Admin"
+          >
+            {session.role === "super_admin" ? <Globe2 className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
+          </Link>
+        )}
 
         <div className="flex items-center gap-2">
           <Avatar className="h-8 w-8">
@@ -170,7 +192,7 @@ function MailShell() {
             <Button
               className="w-full justify-start gap-2"
               size="lg"
-              onClick={() => toast("Composer — coming next module")}
+              onClick={() => { setReplyDefaults(null); setComposerOpen(true); }}
             >
               <Plus className="h-4 w-4" /> Compose
             </Button>
