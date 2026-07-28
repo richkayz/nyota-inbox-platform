@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   Inbox,
@@ -18,6 +18,9 @@ import {
   Menu,
   X,
   Sparkles,
+  Settings,
+  Building2,
+  Globe2,
 } from "lucide-react";
 import { useTenant } from "@/components/branding/BrandProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
@@ -28,6 +31,8 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { Composer } from "@/components/mail/Composer";
+import { NotificationDrawer } from "@/components/mail/NotificationDrawer";
 
 export const Route = createFileRoute("/mail")({
   head: () => ({
@@ -59,6 +64,8 @@ function MailShell() {
   const [query, setQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [replyDefaults, setReplyDefaults] = useState<{ to: string; subject: string } | null>(null);
 
   useEffect(() => {
     if (!session) navigate({ to: "/login" });
@@ -121,6 +128,8 @@ function MailShell() {
           />
         </div>
 
+        <NotificationDrawer />
+
         <button
           onClick={toggle}
           aria-label="Toggle theme"
@@ -128,6 +137,24 @@ function MailShell() {
         >
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </button>
+
+        <Link
+          to="/settings"
+          className="hidden rounded-md p-2 text-muted-foreground hover:bg-muted sm:inline-flex"
+          aria-label="Settings"
+        >
+          <Settings className="h-4 w-4" />
+        </Link>
+
+        {session.role !== "user" && (
+          <Link
+            to={session.role === "super_admin" ? "/super-admin" : "/admin"}
+            className="hidden rounded-md p-2 text-muted-foreground hover:bg-muted sm:inline-flex"
+            aria-label="Admin"
+          >
+            {session.role === "super_admin" ? <Globe2 className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
+          </Link>
+        )}
 
         <div className="flex items-center gap-2">
           <Avatar className="h-8 w-8">
@@ -165,7 +192,7 @@ function MailShell() {
             <Button
               className="w-full justify-start gap-2"
               size="lg"
-              onClick={() => toast("Composer — coming next module")}
+              onClick={() => { setReplyDefaults(null); setComposerOpen(true); }}
             >
               <Plus className="h-4 w-4" /> Compose
             </Button>
@@ -269,7 +296,18 @@ function MailShell() {
           )}
         >
           {active ? (
-            <MessageDetail message={active} onBack={() => setDetailOpen(false)} />
+            <MessageDetail
+              message={active}
+              onBack={() => setDetailOpen(false)}
+              onReply={() => {
+                setReplyDefaults({ to: active.from.email, subject: `Re: ${active.subject}` });
+                setComposerOpen(true);
+              }}
+              onForward={() => {
+                setReplyDefaults({ to: "", subject: `Fwd: ${active.subject}` });
+                setComposerOpen(true);
+              }}
+            />
           ) : (
             <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
               Select a message
@@ -277,6 +315,13 @@ function MailShell() {
           )}
         </section>
       </div>
+
+      <Composer
+        open={composerOpen}
+        onOpenChange={setComposerOpen}
+        defaultTo={replyDefaults?.to}
+        defaultSubject={replyDefaults?.subject}
+      />
     </div>
   );
 }
@@ -328,7 +373,7 @@ function MessageRow({
   );
 }
 
-function MessageDetail({ message, onBack }: { message: MailMessage; onBack: () => void }) {
+function MessageDetail({ message, onBack, onReply, onForward }: { message: MailMessage; onBack: () => void; onReply: () => void; onForward: () => void }) {
   const initials = message.from.name
     .split(" ")
     .map((s) => s[0])
@@ -347,10 +392,10 @@ function MessageDetail({ message, onBack }: { message: MailMessage; onBack: () =
           <X className="h-4 w-4" />
         </button>
         <div className="flex flex-1 flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => toast("Reply — coming next module")}>
+          <Button variant="outline" size="sm" onClick={onReply}>
             <Reply className="mr-1 h-4 w-4" /> Reply
           </Button>
-          <Button variant="outline" size="sm" onClick={() => toast("Forward — coming next module")}>
+          <Button variant="outline" size="sm" onClick={onForward}>
             <Forward className="mr-1 h-4 w-4" /> Forward
           </Button>
           <Button
