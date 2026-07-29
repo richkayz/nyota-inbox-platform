@@ -8,14 +8,19 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { getSession } from "@/lib/mock-auth";
+import { getSession, getSessionStatus } from "@/lib/mock-auth";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/settings")({
   beforeLoad: ({ location }) => {
-    if (typeof window !== "undefined" && !getSession()) {
-      throw redirect({ to: "/login", search: { redirect: location.href } });
+    if (typeof window === "undefined") return;
+    const status = getSessionStatus();
+    if (status !== "active") {
+      throw redirect({
+        to: "/login",
+        search: { redirect: location.href, ...(status === "expired" ? { reason: "expired" as const } : {}) },
+      });
     }
   },
   head: () => ({

@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { useTenant } from "@/components/branding/BrandProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
-import { clearSession, getSession } from "@/lib/mock-auth";
+import { clearSession, getSession, getSessionStatus } from "@/lib/mock-auth";
 import { FOLDERS, MESSAGES, formatMailDate, type MailMessage } from "@/lib/mock-mail";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -48,8 +48,13 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 export const Route = createFileRoute("/mail")({
   beforeLoad: ({ location }) => {
-    if (typeof window !== "undefined" && !getSession()) {
-      throw redirect({ to: "/login", search: { redirect: location.href } });
+    if (typeof window === "undefined") return;
+    const status = getSessionStatus();
+    if (status !== "active") {
+      throw redirect({
+        to: "/login",
+        search: { redirect: location.href, ...(status === "expired" ? { reason: "expired" as const } : {}) },
+      });
     }
   },
   head: () => ({
