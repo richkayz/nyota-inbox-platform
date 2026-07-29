@@ -7,19 +7,24 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getSession } from "@/lib/mock-auth";
+import { getSession, getSessionStatus } from "@/lib/mock-auth";
 import { useTenant } from "@/components/branding/BrandProvider";
 import { UserPlus, ShieldCheck, Palette, Globe2, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/admin")({
   beforeLoad: ({ location }) => {
-    if (typeof window !== "undefined") {
-      const s = getSession();
-      if (!s) throw redirect({ to: "/login", search: { redirect: location.href } });
-      if (s.role !== "company_admin" && s.role !== "super_admin") {
-        throw redirect({ to: "/mail" });
-      }
+    if (typeof window === "undefined") return;
+    const status = getSessionStatus();
+    if (status !== "active") {
+      throw redirect({
+        to: "/login",
+        search: { redirect: location.href, ...(status === "expired" ? { reason: "expired" as const } : {}) },
+      });
+    }
+    const s = getSession();
+    if (s && s.role !== "company_admin" && s.role !== "super_admin") {
+      throw redirect({ to: "/mail" });
     }
   },
   head: () => ({

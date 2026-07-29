@@ -14,11 +14,16 @@ import { toast } from "sonner";
 
 export const Route = createFileRoute("/super-admin")({
   beforeLoad: ({ location }) => {
-    if (typeof window !== "undefined") {
-      const s = getSession();
-      if (!s) throw redirect({ to: "/login", search: { redirect: location.href } });
-      if (s.role !== "super_admin") throw redirect({ to: "/mail" });
+    if (typeof window === "undefined") return;
+    const status = getSessionStatus();
+    if (status !== "active") {
+      throw redirect({
+        to: "/login",
+        search: { redirect: location.href, ...(status === "expired" ? { reason: "expired" as const } : {}) },
+      });
     }
+    const s = getSession();
+    if (s && s.role !== "super_admin") throw redirect({ to: "/mail" });
   },
   head: () => ({
     meta: [
