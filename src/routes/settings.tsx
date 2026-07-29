@@ -13,9 +13,9 @@ import { useTheme } from "@/components/theme/ThemeProvider";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/settings")({
-  beforeLoad: () => {
+  beforeLoad: ({ location }) => {
     if (typeof window !== "undefined" && !getSession()) {
-      throw redirect({ to: "/login" });
+      throw redirect({ to: "/login", search: { redirect: location.href } });
     }
   },
   head: () => ({
