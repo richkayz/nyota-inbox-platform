@@ -78,6 +78,8 @@ function MailShell() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [replyDefaults, setReplyDefaults] = useState<{ to: string; subject: string } | null>(null);
+  const [logoutOpen, setLogoutOpen] = useState(false);
+
 
   useEffect(() => {
     if (!session) navigate({ to: "/login" });
