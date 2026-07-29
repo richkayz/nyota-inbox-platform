@@ -47,9 +47,9 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 
 export const Route = createFileRoute("/mail")({
-  beforeLoad: () => {
+  beforeLoad: ({ location }) => {
     if (typeof window !== "undefined" && !getSession()) {
-      throw redirect({ to: "/login" });
+      throw redirect({ to: "/login", search: { redirect: location.href } });
     }
   },
   head: () => ({
