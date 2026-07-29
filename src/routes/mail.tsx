@@ -382,6 +382,17 @@ function MailShell() {
         defaultTo={replyDefaults?.to}
         defaultSubject={replyDefaults?.subject}
       />
+
+      <ConfirmDialog
+        open={logoutOpen}
+        onOpenChange={setLogoutOpen}
+        title="Sign out?"
+        description="You will be signed out of Nyota Inbox and returned to the login page."
+        confirmLabel="Sign out"
+        cancelLabel="Stay signed in"
+        onConfirm={handleLogout}
+        variant="destructive"
+      />
     </div>
   );
 }
