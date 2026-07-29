@@ -549,5 +549,3 @@ function formatUptime(s: number): string {
   return parts.join(" ");
 }
 
-export { DiagnosticsPage };
-export type { Diagnostics };
