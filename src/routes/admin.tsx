@@ -13,10 +13,10 @@ import { UserPlus, ShieldCheck, Palette, Globe2, CheckCircle2 } from "lucide-rea
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/admin")({
-  beforeLoad: () => {
+  beforeLoad: ({ location }) => {
     if (typeof window !== "undefined") {
       const s = getSession();
-      if (!s) throw redirect({ to: "/login" });
+      if (!s) throw redirect({ to: "/login", search: { redirect: location.href } });
       if (s.role !== "company_admin" && s.role !== "super_admin") {
         throw redirect({ to: "/mail" });
       }

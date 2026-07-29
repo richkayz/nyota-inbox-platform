@@ -13,10 +13,10 @@ import { Plus, Server, Building2, Activity } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/super-admin")({
-  beforeLoad: () => {
+  beforeLoad: ({ location }) => {
     if (typeof window !== "undefined") {
       const s = getSession();
-      if (!s) throw redirect({ to: "/login" });
+      if (!s) throw redirect({ to: "/login", search: { redirect: location.href } });
       if (s.role !== "super_admin") throw redirect({ to: "/mail" });
     }
   },
