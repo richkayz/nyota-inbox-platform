@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { NYOTA_ONE, resolveTenantByHost, type TenantBranding } from "@/lib/tenants";
+import { NYOTA_ONE, resolveInitialTenant, type TenantBranding } from "@/lib/tenants";
 
 interface BrandContextValue {
   tenant: TenantBranding;
@@ -8,10 +8,15 @@ interface BrandContextValue {
 const BrandContext = createContext<BrandContextValue>({ tenant: NYOTA_ONE });
 
 export function BrandProvider({ children }: { children: ReactNode }) {
-  const [tenant, setTenant] = useState<TenantBranding>(NYOTA_ONE);
+  // Lazy init so the first render already uses the correct tenant palette
+  // — no flash of the Nyota default while an effect runs post-mount.
+  const [tenant, setTenant] = useState<TenantBranding>(() => resolveInitialTenant());
 
   useEffect(() => {
-    setTenant(resolveTenantByHost(window.location.hostname));
+    // Re-resolve on mount in case SSR fell back to the default.
+    const resolved = resolveInitialTenant();
+    if (resolved.id !== tenant.id) setTenant(resolved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
