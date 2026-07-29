@@ -143,7 +143,7 @@ export function AppShell({ children, title }: { children: ReactNode; title: stri
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={handleLogout}
+                  onClick={openLogoutConfirm}
                   className="cursor-pointer text-destructive focus:text-destructive"
                 >
                   <LogOut className="h-4 w-4" />
@@ -154,6 +154,16 @@ export function AppShell({ children, title }: { children: ReactNode; title: stri
           </div>
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+        <ConfirmDialog
+          open={logoutOpen}
+          onOpenChange={setLogoutOpen}
+          title="Sign out?"
+          description="You will be signed out of Nyota Inbox and returned to the login page."
+          confirmLabel="Sign out"
+          cancelLabel="Stay signed in"
+          onConfirm={handleLogout}
+          variant="destructive"
+        />
       </div>
     </div>
   );
