@@ -43,6 +43,8 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Composer } from "@/components/mail/Composer";
 import { NotificationDrawer } from "@/components/mail/NotificationDrawer";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+
 
 export const Route = createFileRoute("/mail")({
   head: () => ({
