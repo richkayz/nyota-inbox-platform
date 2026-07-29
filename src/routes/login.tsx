@@ -4,6 +4,7 @@ import { Mail, Lock, ArrowRight, Loader2, Moon, Sun } from "lucide-react";
 import { useTenant } from "@/components/branding/BrandProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { consumeExpiredFlag, setSession } from "@/lib/mock-auth";
+import { recordAuditEvent } from "@/lib/audit-log";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,9 +43,15 @@ function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (search.reason === "expired" || consumeExpiredFlag()) {
+    const expired = search.reason === "expired" ? {} : consumeExpiredFlag();
+    if (expired) {
       toast.error("Your session has expired", {
         description: "Please sign in again to continue.",
+      });
+      recordAuditEvent({
+        tenantId: expired.tenantId ?? tenant.id,
+        type: "session.expired",
+        email: expired.email,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -66,6 +73,12 @@ function LoginPage() {
       },
       { remember },
     );
+    recordAuditEvent({
+      tenantId: tenant.id,
+      type: "login.success",
+      email,
+      meta: { remember },
+    });
     toast.success(`Welcome back to ${tenant.name}`);
     if (isSafeRedirect(search.redirect)) {
       // Preserve pathname + query string + hash by pushing the raw href.
@@ -137,7 +150,14 @@ function LoginPage() {
                 <button
                   type="button"
                   className="text-xs text-muted-foreground transition hover:text-primary"
-                  onClick={() => toast("Password reset — coming soon")}
+                  onClick={() => {
+                    recordAuditEvent({
+                      tenantId: tenant.id,
+                      type: "password.reset.requested",
+                      email: email || undefined,
+                    });
+                    toast("Password reset — coming soon");
+                  }}
                 >
                   Forgot?
                 </button>

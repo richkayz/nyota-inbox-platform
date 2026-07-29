@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getSession, getSessionStatus } from "@/lib/mock-auth";
+import { getAuditEntries, auditEventLabel, type AuditEntry } from "@/lib/audit-log";
 import { useTenant } from "@/components/branding/BrandProvider";
-import { UserPlus, ShieldCheck, Palette, Globe2, CheckCircle2 } from "lucide-react";
+import { UserPlus, ShieldCheck, Palette, Globe2, CheckCircle2, ScrollText } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/admin")({
@@ -64,6 +65,7 @@ function AdminPage() {
             <TabsTrigger value="branding">Branding</TabsTrigger>
             <TabsTrigger value="domain">Domain</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
+            <TabsTrigger value="audit">Audit log</TabsTrigger>
           </TabsList>
 
           <TabsContent value="users" className="mt-6">
@@ -190,6 +192,10 @@ function AdminPage() {
               </ul>
             </Card>
           </TabsContent>
+
+          <TabsContent value="audit" className="mt-6">
+            <AuditLogTab tenantId={tenant.id} tenantName={tenant.name} />
+          </TabsContent>
         </Tabs>
       </div>
     </AppShell>
@@ -207,4 +213,97 @@ function SecurityRow({ label, enabled }: { label: string; enabled: boolean }) {
       <Badge variant={enabled ? "default" : "secondary"}>{enabled ? "On" : "Off"}</Badge>
     </li>
   );
+}
+
+function AuditLogTab({ tenantId, tenantName }: { tenantId: string; tenantName: string }) {
+  const [entries, setEntries] = useState<AuditEntry[]>(() => getAuditEntries(tenantId, 200));
+  const [filter, setFilter] = useState<"all" | AuditEntry["type"]>("all");
+
+  function refresh() {
+    setEntries(getAuditEntries(tenantId, 200));
+  }
+
+  const visible = filter === "all" ? entries : entries.filter((e) => e.type === filter);
+
+  return (
+    <Card>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-base font-semibold">
+            <ScrollText className="h-4 w-4" /> Audit log
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Authentication events for {tenantName} · {entries.length} recorded
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as typeof filter)}
+            className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+          >
+            <option value="all">All events</option>
+            <option value="login.success">Sign in</option>
+            <option value="logout">Sign out</option>
+            <option value="session.expired">Session expired</option>
+            <option value="password.reset.requested">Password reset requested</option>
+            <option value="password.reset.completed">Password reset completed</option>
+          </select>
+          <Button size="sm" variant="outline" onClick={refresh}>Refresh</Button>
+        </div>
+      </div>
+
+      {visible.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+          No events recorded yet. Sign in, sign out, or let a session expire to see entries here.
+        </div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>When</TableHead>
+              <TableHead>Event</TableHead>
+              <TableHead>User</TableHead>
+              <TableHead>Device</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {visible.map((e) => (
+              <TableRow key={e.id}>
+                <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                  {new Date(e.at).toLocaleString()}
+                </TableCell>
+                <TableCell>
+                  <Badge variant={eventBadgeVariant(e.type)}>{auditEventLabel(e.type)}</Badge>
+                </TableCell>
+                <TableCell className="text-sm">{e.email ?? "—"}</TableCell>
+                <TableCell className="max-w-[280px] truncate text-xs text-muted-foreground" title={e.userAgent}>
+                  {shortUserAgent(e.userAgent)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </Card>
+  );
+}
+
+function eventBadgeVariant(type: AuditEntry["type"]): "default" | "secondary" | "destructive" | "outline" {
+  switch (type) {
+    case "login.success": return "default";
+    case "logout": return "secondary";
+    case "session.expired": return "destructive";
+    case "login.failure": return "destructive";
+    case "password.reset.requested":
+    case "password.reset.completed":
+      return "outline";
+  }
+}
+
+function shortUserAgent(ua?: string): string {
+  if (!ua) return "—";
+  const m = ua.match(/(Chrome|Firefox|Safari|Edg|OPR)\/[\d.]+/);
+  const os = ua.match(/\(([^)]+)\)/)?.[1]?.split(";")[0]?.trim();
+  return [m?.[0], os].filter(Boolean).join(" · ") || ua.slice(0, 60);
 }

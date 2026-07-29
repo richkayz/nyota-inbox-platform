@@ -5,6 +5,7 @@ import { LogOut, Moon, Sun, Inbox as InboxIcon, User, Settings, ChevronDown } fr
 import { useTenant } from "@/components/branding/BrandProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { clearSession, getSession } from "@/lib/mock-auth";
+import { recordAuditEvent } from "@/lib/audit-log";
 import { CORE_MODULES, ADMIN_MODULES } from "@/lib/mock-modules";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -47,6 +48,10 @@ export function AppShell({ children, title }: { children: ReactNode; title: stri
   const [logoutOpen, setLogoutOpen] = useState(false);
 
   function handleLogout() {
+    const s = getSession();
+    if (s) {
+      recordAuditEvent({ tenantId: s.tenantId, type: "logout", email: s.email });
+    }
     clearSession();
     toast.success("Signed out");
     navigate({ to: "/login" });
