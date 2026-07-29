@@ -1,26 +1,49 @@
-import { useState } from "react";
-import { Bell, Mail, ShieldCheck, UserPlus, CheckCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Bell, Mail, CheckCheck } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { useMailEvents } from "@/lib/api/sse";
 
 interface Note {
   id: string;
-  icon: typeof Bell;
   title: string;
   body: string;
-  time: string;
+  at: number;
   unread: boolean;
 }
 
-const INITIAL: Note[] = [
-  { id: "n1", icon: Mail, title: "6 new messages", body: "Since your last visit.", time: "just now", unread: true },
-  { id: "n2", icon: ShieldCheck, title: "Suspicious sign-in blocked", body: "From an unrecognized IP in Berlin.", time: "2h", unread: true },
-  { id: "n3", icon: UserPlus, title: "Amara Okafor joined", body: "New user added to your tenant.", time: "1d", unread: false },
-];
+function relTime(at: number) {
+  const s = Math.floor((Date.now() - at) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86_400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86_400)}d`;
+}
 
 export function NotificationDrawer() {
-  const [notes, setNotes] = useState<Note[]>(INITIAL);
+  const [notes, setNotes] = useState<Note[]>([]);
   const [filter, setFilter] = useState<"all" | "unread">("all");
+
+  useMailEvents((folder, count) => {
+    setNotes((prev) => [
+      {
+        id: `n-${Date.now()}-${Math.random()}`,
+        title: `${count} new message${count > 1 ? "s" : ""}`,
+        body: `Arrived in ${folder}.`,
+        at: Date.now(),
+        unread: true,
+      },
+      ...prev,
+    ].slice(0, 30));
+  });
+
+  // periodic re-render so relative timestamps refresh
+  const [, force] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => force((n) => n + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   const unread = notes.filter((n) => n.unread).length;
   const visible = filter === "unread" ? notes.filter((n) => n.unread) : notes;
 
@@ -81,35 +104,34 @@ export function NotificationDrawer() {
               You&rsquo;re all caught up.
             </div>
           )}
-          {visible.map((n) => {
-            const Icon = n.icon;
-            return (
-              <button
-                key={n.id}
-                onClick={() => setNotes((prev) => prev.map((x) => (x.id === n.id ? { ...x, unread: false } : x)))}
-                className={cn(
-                  "flex w-full gap-3 rounded-xl border p-3 text-left transition",
-                  n.unread
-                    ? "border-primary/20 bg-primary/[0.03] hover:bg-primary/[0.06]"
-                    : "border-border bg-card hover:bg-muted/50",
-                )}
-              >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <Icon className="h-4 w-4" />
+          {visible.map((n) => (
+            <button
+              key={n.id}
+              onClick={() =>
+                setNotes((prev) => prev.map((x) => (x.id === n.id ? { ...x, unread: false } : x)))
+              }
+              className={cn(
+                "flex w-full gap-3 rounded-xl border p-3 text-left transition",
+                n.unread
+                  ? "border-primary/20 bg-primary/[0.03] hover:bg-primary/[0.06]"
+                  : "border-border bg-card hover:bg-muted/50",
+              )}
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Mail className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className={cn("truncate text-sm", n.unread ? "font-semibold" : "font-medium")}>
+                    {n.title}
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{relTime(n.at)}</span>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className={cn("truncate text-sm", n.unread ? "font-semibold" : "font-medium")}>
-                      {n.title}
-                    </span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{n.time}</span>
-                  </div>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{n.body}</p>
-                </div>
-                {n.unread && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" />}
-              </button>
-            );
-          })}
+                <p className="mt-0.5 text-xs text-muted-foreground">{n.body}</p>
+              </div>
+              {n.unread && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" />}
+            </button>
+          ))}
         </div>
       </SheetContent>
     </Sheet>
