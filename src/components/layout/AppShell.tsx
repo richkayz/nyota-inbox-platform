@@ -93,18 +93,54 @@ export function AppShell({ children, title }: { children: ReactNode; title: stri
             >
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
-            <Avatar className="ml-1 h-8 w-8">
-              <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
-            <button
-              onClick={handleLogout}
-              className="rounded-md p-2 text-muted-foreground hover:bg-muted"
-              aria-label="Sign out"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="ml-1 flex items-center gap-2 rounded-md p-1 pr-2 text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label="Open user menu"
+                >
+                  <Avatar className="h-8 w-8">
+                    <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                  <ChevronDown className="hidden h-3.5 w-3.5 sm:block" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-foreground">{session?.displayName}</span>
+                    <span className="text-xs text-muted-foreground">{session?.email}</span>
+                    <span className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                      {session?.role?.replace("_", " ")}
+                    </span>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link to="/settings" className="cursor-pointer">
+                    <Settings className="h-4 w-4" />
+                    Settings
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/admin" className="cursor-pointer">
+                    <User className="h-4 w-4" />
+                    Company admin
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={handleLogout}
+                  className="cursor-pointer text-destructive focus:text-destructive"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
