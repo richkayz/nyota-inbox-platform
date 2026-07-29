@@ -41,6 +41,16 @@ function LoginPage() {
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    if (search.reason === "expired" || consumeExpiredFlag()) {
+      toast.error("Your session has expired", {
+        description: "Please sign in again to continue.",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!email || !password) return;
