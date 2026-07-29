@@ -4,7 +4,10 @@
 import type {
   AuthTokens,
   Contact,
+  Diagnostics,
   FolderSummary,
+  GatewayInfo,
+  HealthCheck,
   MailClient,
   MessageDetail,
   MessageListItem,
