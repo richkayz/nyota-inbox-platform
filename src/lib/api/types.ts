@@ -59,6 +59,14 @@ export interface SendMessageInput {
   attachments?: Array<{ filename: string; content: string; contentType?: string }>;
 }
 
+export interface Contact {
+  id: string;
+  email: string;
+  name?: string | null;
+  starred: boolean;
+  createdAt?: string;
+}
+
 export type SseEvent =
   | { type: "mail.new"; folder: string; count: number }
   | { type: "mail.expunge"; folder: string; seq: number }
@@ -66,12 +74,10 @@ export type SseEvent =
   | { type: "ping"; at: number };
 
 export interface MailClient {
-  // auth
   login(email: string, password: string, tenantId?: string): Promise<AuthTokens>;
   refresh(): Promise<AuthTokens>;
   logout(): Promise<void>;
 
-  // mail
   listFolders(): Promise<FolderSummary[]>;
   listMessages(input: { folder: string; cursor?: string | null; limit?: number; q?: string }): Promise<Page<MessageListItem>>;
   getMessage(folder: string, uid: number): Promise<MessageDetail>;
@@ -80,6 +86,9 @@ export interface MailClient {
   remove(folder: string, uid: number): Promise<void>;
   send(input: SendMessageInput): Promise<{ messageId: string }>;
 
-  // realtime
+  listContacts(input: { cursor?: string | null; limit?: number; q?: string }): Promise<Page<Contact>>;
+  upsertContact(input: { email: string; name?: string; starred?: boolean }): Promise<Contact>;
+  removeContact(id: string): Promise<void>;
+
   subscribe(onEvent: (event: SseEvent) => void): () => void;
 }

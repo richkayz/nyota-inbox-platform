@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { mailClient } from "@/lib/api/client";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -62,8 +63,14 @@ function LoginPage() {
     e.preventDefault();
     if (!email || !password) return;
     setLoading(true);
-    // Mock: any credentials work. Real impl calls Mail Gateway IMAP LOGIN.
-    await new Promise((r) => setTimeout(r, 600));
+    try {
+      await mailClient.login(email, password, tenant.id);
+    } catch (err) {
+      setLoading(false);
+      toast.error("Sign in failed", { description: (err as Error).message || "Check your credentials and try again." });
+      recordAuditEvent({ tenantId: tenant.id, type: "login.failure", email });
+      return;
+    }
     setSession(
       {
         email,
