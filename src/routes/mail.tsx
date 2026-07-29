@@ -47,6 +47,11 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 
 export const Route = createFileRoute("/mail")({
+  beforeLoad: () => {
+    if (typeof window !== "undefined" && !getSession()) {
+      throw redirect({ to: "/login" });
+    }
+  },
   head: () => ({
     meta: [
       { title: "Inbox — Nyota Inbox" },
