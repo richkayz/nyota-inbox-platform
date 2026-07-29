@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useState } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { LogOut, Moon, Sun, Inbox as InboxIcon, User, Settings, ChevronDown } from "lucide-react";
 import { useTenant } from "@/components/branding/BrandProvider";
@@ -6,6 +7,7 @@ import { useTheme } from "@/components/theme/ThemeProvider";
 import { clearSession, getSession } from "@/lib/mock-auth";
 import { CORE_MODULES, ADMIN_MODULES } from "@/lib/mock-modules";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { NotificationDrawer } from "@/components/mail/NotificationDrawer";
 import {
   DropdownMenu,
@@ -17,6 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+
 
 export function AppShell({ children, title }: { children: ReactNode; title: string }) {
   const tenant = useTenant();
