@@ -44,11 +44,18 @@ export function AppShell({ children, title }: { children: ReactNode; title: stri
     }),
   ];
 
+  const [logoutOpen, setLogoutOpen] = useState(false);
+
   function handleLogout() {
     clearSession();
     toast.success("Signed out");
     navigate({ to: "/login" });
   }
+
+  function openLogoutConfirm() {
+    setLogoutOpen(true);
+  }
+
 
   return (
     <div className="flex min-h-screen w-full bg-background text-foreground">
