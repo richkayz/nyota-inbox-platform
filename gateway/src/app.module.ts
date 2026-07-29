@@ -33,6 +33,7 @@ import { HealthModule } from './health/health.module';
     ContactsModule,
     SettingsModule,
     AuditModule,
+    HealthModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
