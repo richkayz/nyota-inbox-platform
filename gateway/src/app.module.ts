@@ -13,6 +13,7 @@ import { ContactsModule } from './contacts/contacts.module';
 import { SettingsModule } from './settings/settings.module';
 import { AuditModule } from './audit/audit.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
