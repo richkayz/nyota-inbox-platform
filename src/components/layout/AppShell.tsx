@@ -147,11 +147,19 @@ export function AppShell({ children, title }: { children: ReactNode; title: stri
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link to="/admin" className="cursor-pointer">
+                  <Link to="/contacts" className="cursor-pointer">
                     <User className="h-4 w-4" />
-                    Company admin
+                    Contacts
                   </Link>
                 </DropdownMenuItem>
+                {session?.role !== "user" && (
+                  <DropdownMenuItem asChild>
+                    <Link to="/admin" className="cursor-pointer">
+                      <User className="h-4 w-4" />
+                      Company admin
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={openLogoutConfirm}
