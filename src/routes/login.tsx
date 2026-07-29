@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -27,6 +28,7 @@ function LoginPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -35,12 +37,15 @@ function LoginPage() {
     setLoading(true);
     // Mock: any credentials work. Real impl calls Mail Gateway IMAP LOGIN.
     await new Promise((r) => setTimeout(r, 600));
-    setSession({
-      email,
-      displayName: email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-      role: email.startsWith("admin") ? "company_admin" : "user",
-      tenantId: tenant.id,
-    });
+    setSession(
+      {
+        email,
+        displayName: email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        role: email.startsWith("admin") ? "company_admin" : "user",
+        tenantId: tenant.id,
+      },
+      { remember },
+    );
     toast.success(`Welcome back to ${tenant.name}`);
     navigate({ to: "/mail" });
   }
@@ -126,6 +131,15 @@ function LoginPage() {
                 />
               </div>
             </div>
+
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground select-none">
+              <Checkbox
+                checked={remember}
+                onCheckedChange={(v) => setRemember(v === true)}
+                id="remember"
+              />
+              <span>Remember me for 30 days</span>
+            </label>
 
             <Button type="submit" size="lg" className="w-full" disabled={loading}>
               {loading ? (
