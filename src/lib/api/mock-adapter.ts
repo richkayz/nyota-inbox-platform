@@ -302,6 +302,45 @@ export function createMockAdapter(): MailClient {
       if (i >= 0) store.contacts.splice(i, 1);
     },
 
+    async diagnostics() {
+      await delay(120);
+      const now = new Date().toISOString();
+      return {
+        mode: "mock" as const,
+        gateway: {
+          status: "ok",
+          version: "0.0.0-mock",
+          environment: "mock",
+          gatewayUrl: null,
+          uptimeSeconds: Math.round(performance.now() / 1000),
+          timestamp: now,
+        },
+        session: {
+          email: "mock@nyota.local",
+          tenantId: "mock",
+          role: "user",
+          sessionId: "mock-session",
+          jwtValid: false,
+          refreshTokenPresent: false,
+        },
+        checks: {
+          imapReachable: { ok: false, latencyMs: 0, detail: "Mock mode — no gateway configured" },
+          smtpReachable: { ok: false, latencyMs: 0, detail: "Mock mode — no gateway configured" },
+          database: { ok: false, latencyMs: 0, detail: "Mock mode — no gateway configured" },
+          imapAuth: { ok: false, latencyMs: 0, detail: "Mock mode — no real IMAP server", meta: {} },
+          smtpAuth: { ok: false, latencyMs: 0, detail: "Mock mode — no real SMTP server" },
+        },
+      };
+    },
+    async testImap() {
+      await delay(200);
+      return { ok: false, latencyMs: 0, detail: "Mock mode — set VITE_API_MODE=live to run a real IMAP LOGIN" };
+    },
+    async testSmtp() {
+      await delay(200);
+      return { ok: false, latencyMs: 0, detail: "Mock mode — set VITE_API_MODE=live to run a real SMTP verify" };
+    },
+
     subscribe(onEvent) {
       subs.add(onEvent);
       return () => {
