@@ -63,15 +63,16 @@ export function AppShell({ children, title }: { children: ReactNode; title: stri
 
 
   return (
-    <div className="flex min-h-screen w-full bg-background text-foreground">
-      <aside className="hidden w-16 shrink-0 flex-col items-center gap-1 border-r border-sidebar-border bg-sidebar py-4 md:flex">
-        <div
-          className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl text-primary-foreground"
+    <div className="flex h-dvh w-full bg-background text-foreground">
+      <aside className="hidden w-16 shrink-0 flex-col items-center gap-1.5 border-r border-sidebar-border bg-sidebar py-4 md:flex">
+        <Link
+          to="/mail"
+          className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl text-primary-foreground shadow-sm"
           style={{ background: "var(--primary)" }}
           title={tenant.name}
         >
           <InboxIcon className="h-4 w-4" />
-        </div>
+        </Link>
         {modules.map((m) => {
           const Icon = m.icon;
           const active = pathname === m.to || (m.to !== "/mail" && pathname.startsWith(m.to));
@@ -80,13 +81,18 @@ export function AppShell({ children, title }: { children: ReactNode; title: stri
               key={m.id}
               to={m.to}
               title={m.label}
+              aria-label={m.label}
+              aria-current={active ? "page" : undefined}
               className={cn(
-                "flex h-10 w-10 items-center justify-center rounded-xl transition",
+                "relative flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
                 active
-                  ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                  ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
                   : "text-sidebar-foreground hover:bg-sidebar-accent",
               )}
             >
+              {active && (
+                <span aria-hidden className="absolute -left-1 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r bg-sidebar-primary" />
+              )}
               <Icon className="h-4 w-4" />
             </Link>
           );
@@ -95,16 +101,16 @@ export function AppShell({ children, title }: { children: ReactNode; title: stri
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4">
-          <div>
-            <h1 className="text-sm font-semibold tracking-tight">{title}</h1>
-            <p className="text-xs text-muted-foreground">{tenant.name}</p>
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-semibold tracking-tight">{title}</h1>
+            <p className="truncate text-xs text-muted-foreground">{tenant.name}</p>
           </div>
           <div className="flex items-center gap-1">
             <NotificationDrawer />
             <button
               onClick={toggle}
               aria-label="Toggle theme"
-              className="rounded-md p-2 text-muted-foreground hover:bg-muted"
+              className="icon-btn"
             >
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
