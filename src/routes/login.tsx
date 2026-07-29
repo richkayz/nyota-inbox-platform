@@ -33,6 +33,7 @@ function LoginPage() {
   const tenant = useTenant();
   const { theme, toggle } = useTheme();
   const navigate = useNavigate();
+  const search = Route.useSearch();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
@@ -54,7 +55,8 @@ function LoginPage() {
       { remember },
     );
     toast.success(`Welcome back to ${tenant.name}`);
-    navigate({ to: "/mail" });
+    const target = isSafeRedirect(search.redirect) ? search.redirect : "/mail";
+    navigate({ to: target });
   }
 
   return (
