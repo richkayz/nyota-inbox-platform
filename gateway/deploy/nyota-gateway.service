@@ -1,0 +1,34 @@
+[Unit]
+Description=Nyota Inbox Mail Gateway (NestJS)
+Documentation=https://inbox.example.com/docs
+After=network-online.target mariadb.service dovecot.service postfix.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nyota
+Group=nyota
+WorkingDirectory=/opt/nyota-gateway
+EnvironmentFile=/etc/nyota-gateway/env
+ExecStart=/usr/bin/node /opt/nyota-gateway/dist/main.js
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/nyota-gateway /var/log/nyota-gateway
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
