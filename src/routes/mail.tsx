@@ -27,6 +27,7 @@ import {
 import { useTenant } from "@/components/branding/BrandProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { clearSession, getSession, getSessionStatus } from "@/lib/mock-auth";
+import { recordAuditEvent } from "@/lib/audit-log";
 import { FOLDERS, MESSAGES, formatMailDate, type MailMessage } from "@/lib/mock-mail";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -103,6 +104,10 @@ function MailShell() {
   const active = filtered.find((m) => m.id === activeMessageId) ?? filtered[0] ?? null;
 
   function handleLogout() {
+    const s = getSession();
+    if (s) {
+      recordAuditEvent({ tenantId: s.tenantId, type: "logout", email: s.email });
+    }
     clearSession();
     setSess(null);
     toast.success("Signed out");

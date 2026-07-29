@@ -13,7 +13,12 @@ export function getSessionStatus(): SessionStatus {
       const parsed = JSON.parse(raw) as Session;
       if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
         storage.removeItem(KEY);
-        try { window.sessionStorage.setItem(EXPIRED_FLAG, "1"); } catch { /* ignore */ }
+        try {
+          window.sessionStorage.setItem(
+            EXPIRED_FLAG,
+            JSON.stringify({ email: parsed.email, tenantId: parsed.tenantId }),
+          );
+        } catch { /* ignore */ }
         return "expired";
       }
       return "active";
@@ -24,16 +29,18 @@ export function getSessionStatus(): SessionStatus {
   return "none";
 }
 
-export function consumeExpiredFlag(): boolean {
-  if (typeof window === "undefined") return false;
+export interface ExpiredInfo { email?: string; tenantId?: string }
+
+export function consumeExpiredFlag(): ExpiredInfo | null {
+  if (typeof window === "undefined") return null;
   try {
     const v = window.sessionStorage.getItem(EXPIRED_FLAG);
-    if (v) {
-      window.sessionStorage.removeItem(EXPIRED_FLAG);
-      return true;
-    }
+    if (!v) return null;
+    window.sessionStorage.removeItem(EXPIRED_FLAG);
+    if (v === "1") return {}; // back-compat with previous flag value
+    try { return JSON.parse(v) as ExpiredInfo; } catch { return {}; }
   } catch { /* ignore */ }
-  return false;
+  return null;
 }
 
 export interface Session {
