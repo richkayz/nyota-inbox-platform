@@ -53,6 +53,13 @@ function SettingsPage() {
   return (
     <AppShell title="Settings">
       <div className="mx-auto max-w-3xl p-6">
+        <div className="mb-4 flex justify-end">
+          <Button asChild variant="outline" size="sm">
+            <Link to="/settings/diagnostics">
+              <Activity className="mr-2 h-4 w-4" /> Connection diagnostics
+            </Link>
+          </Button>
+        </div>
         <Tabs defaultValue="profile" className="space-y-6">
           <TabsList>
             <TabsTrigger value="profile">Profile</TabsTrigger>
