@@ -1,9 +1,9 @@
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Mail, Lock, ArrowRight, Loader2, Moon, Sun } from "lucide-react";
 import { useTenant } from "@/components/branding/BrandProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
-import { setSession } from "@/lib/mock-auth";
+import { consumeExpiredFlag, setSession } from "@/lib/mock-auth";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 export const Route = createFileRoute("/login")({
   validateSearch: (search: Record<string, unknown>) => ({
     redirect: typeof search.redirect === "string" ? search.redirect : undefined,
+    reason: search.reason === "expired" ? ("expired" as const) : undefined,
   }),
   head: () => ({
     meta: [
