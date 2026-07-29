@@ -4,7 +4,9 @@
 import type {
   AuthTokens,
   Contact,
+  Diagnostics,
   FolderSummary,
+  HealthCheck,
   MailClient,
   MessageDetail,
   MessageListItem,
@@ -134,6 +136,20 @@ export function createHttpAdapter(baseUrl: string): MailClient {
       request<Contact>("/contacts", { method: "POST", body: JSON.stringify(input) }),
     removeContact: (id) =>
       request<void>(`/contacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    async diagnostics(): Promise<Diagnostics> {
+      const started = Date.now();
+      const data = await request<Omit<Diagnostics, "mode"> & { mode?: "live" }>("/health/diagnostics");
+      const t = readTokens();
+      return {
+        ...data,
+        mode: "live",
+        session: { ...data.session, refreshTokenPresent: Boolean(t?.refreshToken) },
+        gateway: { ...data.gateway, uptimeSeconds: data.gateway.uptimeSeconds ?? 0 },
+      } as Diagnostics;
+      void started;
+    },
+    testImap: () => request<HealthCheck>("/health/diagnostics/test-imap"),
+    testSmtp: () => request<HealthCheck>("/health/diagnostics/test-smtp"),
 
     subscribe(onEvent) {
       // EventSource does not support custom headers; the gateway accepts the

@@ -73,6 +73,42 @@ export type SseEvent =
   | { type: "mail.flags"; folder: string; seq: number; flags: string[] }
   | { type: "ping"; at: number };
 
+export interface HealthCheck {
+  ok: boolean;
+  latencyMs: number;
+  detail?: string;
+  meta?: Record<string, unknown>;
+}
+
+export interface GatewayInfo {
+  status: string;
+  version: string;
+  environment: string;
+  gatewayUrl: string | null;
+  uptimeSeconds: number;
+  timestamp: string;
+}
+
+export interface Diagnostics {
+  mode: "mock" | "live";
+  gateway: GatewayInfo;
+  session: {
+    email: string;
+    tenantId: string;
+    role: string;
+    sessionId: string;
+    jwtValid: boolean;
+    refreshTokenPresent: boolean;
+  };
+  checks: {
+    imapReachable: HealthCheck;
+    smtpReachable: HealthCheck;
+    database: HealthCheck;
+    imapAuth: HealthCheck & { meta?: { capabilities?: string[]; folders?: string[]; folderCount?: number; supportsIdle?: boolean; tls?: boolean } };
+    smtpAuth: HealthCheck;
+  };
+}
+
 export interface MailClient {
   login(email: string, password: string, tenantId?: string): Promise<AuthTokens>;
   refresh(): Promise<AuthTokens>;
@@ -89,6 +125,10 @@ export interface MailClient {
   listContacts(input: { cursor?: string | null; limit?: number; q?: string }): Promise<Page<Contact>>;
   upsertContact(input: { email: string; name?: string; starred?: boolean }): Promise<Contact>;
   removeContact(id: string): Promise<void>;
+
+  diagnostics(): Promise<Diagnostics>;
+  testImap(): Promise<HealthCheck>;
+  testSmtp(): Promise<HealthCheck>;
 
   subscribe(onEvent: (event: SseEvent) => void): () => void;
 }
