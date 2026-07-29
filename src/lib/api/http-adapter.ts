@@ -3,6 +3,7 @@
 
 import type {
   AuthTokens,
+  Contact,
   FolderSummary,
   MailClient,
   MessageDetail,
@@ -97,7 +98,7 @@ export function createHttpAdapter(baseUrl: string): MailClient {
     },
 
     listFolders: () => request<FolderSummary[]>("/mail/folders"),
-    listMessages: ({ folder, cursor, limit = 50, q }) => {
+    listMessages: ({ folder, cursor, limit = 30, q }) => {
       const params = new URLSearchParams({ folder, limit: String(limit) });
       if (cursor) params.set("cursor", cursor);
       if (q) params.set("q", q);
@@ -122,6 +123,17 @@ export function createHttpAdapter(baseUrl: string): MailClient {
         method: "POST",
         body: JSON.stringify(input),
       }),
+
+    listContacts: ({ cursor, limit = 50, q }) => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (cursor) params.set("cursor", cursor);
+      if (q) params.set("q", q);
+      return request<Page<Contact>>(`/contacts?${params.toString()}`);
+    },
+    upsertContact: (input) =>
+      request<Contact>("/contacts", { method: "POST", body: JSON.stringify(input) }),
+    removeContact: (id) =>
+      request<void>(`/contacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
     subscribe(onEvent) {
       // EventSource does not support custom headers; the gateway accepts the
