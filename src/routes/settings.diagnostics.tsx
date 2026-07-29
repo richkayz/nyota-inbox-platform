@@ -96,7 +96,6 @@ function DiagnosticsPage() {
     if (!diagnostics) return null;
     return {
       generatedAt: new Date().toISOString(),
-      mode: diagnostics.mode,
       apiLatencyMs: rtt,
       gatewayUrl: GATEWAY_URL,
       ...diagnostics,
