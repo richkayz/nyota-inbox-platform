@@ -21,6 +21,8 @@ import {
   Settings,
   Building2,
   Globe2,
+  ChevronDown,
+  User,
 } from "lucide-react";
 import { useTenant } from "@/components/branding/BrandProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
@@ -29,6 +31,14 @@ import { FOLDERS, MESSAGES, formatMailDate, type MailMessage } from "@/lib/mock-
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Composer } from "@/components/mail/Composer";
