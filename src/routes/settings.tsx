@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, redirect, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { getSession, getSessionStatus } from "@/lib/mock-auth";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { toast } from "sonner";
+import { Activity } from "lucide-react";
 
 export const Route = createFileRoute("/settings")({
   beforeLoad: ({ location }) => {
