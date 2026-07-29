@@ -13,6 +13,11 @@ import { useTheme } from "@/components/theme/ThemeProvider";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/settings")({
+  beforeLoad: () => {
+    if (typeof window !== "undefined" && !getSession()) {
+      throw redirect({ to: "/login" });
+    }
+  },
   head: () => ({
     meta: [
       { title: "Settings — Nyota Inbox" },

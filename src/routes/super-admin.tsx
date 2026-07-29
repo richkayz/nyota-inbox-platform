@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -13,6 +13,13 @@ import { Plus, Server, Building2, Activity } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/super-admin")({
+  beforeLoad: () => {
+    if (typeof window !== "undefined") {
+      const s = getSession();
+      if (!s) throw redirect({ to: "/login" });
+      if (s.role !== "super_admin") throw redirect({ to: "/mail" });
+    }
+  },
   head: () => ({
     meta: [
       { title: "Platform Admin — Nyota Inbox" },
