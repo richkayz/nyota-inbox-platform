@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -13,6 +13,15 @@ import { UserPlus, ShieldCheck, Palette, Globe2, CheckCircle2 } from "lucide-rea
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/admin")({
+  beforeLoad: () => {
+    if (typeof window !== "undefined") {
+      const s = getSession();
+      if (!s) throw redirect({ to: "/login" });
+      if (s.role !== "company_admin" && s.role !== "super_admin") {
+        throw redirect({ to: "/mail" });
+      }
+    }
+  },
   head: () => ({
     meta: [
       { title: "Company Admin — Nyota Inbox" },

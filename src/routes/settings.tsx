@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -13,6 +13,11 @@ import { useTheme } from "@/components/theme/ThemeProvider";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/settings")({
+  beforeLoad: () => {
+    if (typeof window !== "undefined" && !getSession()) {
+      throw redirect({ to: "/login" });
+    }
+  },
   head: () => ({
     meta: [
       { title: "Settings — Nyota Inbox" },

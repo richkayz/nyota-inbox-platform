@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link, redirect } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   Inbox,
@@ -47,6 +47,11 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 
 export const Route = createFileRoute("/mail")({
+  beforeLoad: () => {
+    if (typeof window !== "undefined" && !getSession()) {
+      throw redirect({ to: "/login" });
+    }
+  },
   head: () => ({
     meta: [
       { title: "Inbox — Nyota Inbox" },
