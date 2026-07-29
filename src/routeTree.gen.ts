@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SuperAdminRouteImport } from './routes/super-admin'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as MailRouteImport } from './routes/mail'
+import { Route as LogoutRouteImport } from './routes/logout'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
@@ -29,6 +30,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const MailRoute = MailRouteImport.update({
   id: '/mail',
   path: '/mail',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LogoutRoute = LogoutRouteImport.update({
+  id: '/logout',
+  path: '/logout',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -51,6 +57,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/login': typeof LoginRoute
+  '/logout': typeof LogoutRoute
   '/mail': typeof MailRoute
   '/settings': typeof SettingsRoute
   '/super-admin': typeof SuperAdminRoute
@@ -59,6 +66,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/login': typeof LoginRoute
+  '/logout': typeof LogoutRoute
   '/mail': typeof MailRoute
   '/settings': typeof SettingsRoute
   '/super-admin': typeof SuperAdminRoute
@@ -68,20 +76,36 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/login': typeof LoginRoute
+  '/logout': typeof LogoutRoute
   '/mail': typeof MailRoute
   '/settings': typeof SettingsRoute
   '/super-admin': typeof SuperAdminRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/admin' | '/login' | '/mail' | '/settings' | '/super-admin'
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/login'
+    | '/logout'
+    | '/mail'
+    | '/settings'
+    | '/super-admin'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/admin' | '/login' | '/mail' | '/settings' | '/super-admin'
+  to:
+    | '/'
+    | '/admin'
+    | '/login'
+    | '/logout'
+    | '/mail'
+    | '/settings'
+    | '/super-admin'
   id:
     | '__root__'
     | '/'
     | '/admin'
     | '/login'
+    | '/logout'
     | '/mail'
     | '/settings'
     | '/super-admin'
@@ -91,6 +115,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
   LoginRoute: typeof LoginRoute
+  LogoutRoute: typeof LogoutRoute
   MailRoute: typeof MailRoute
   SettingsRoute: typeof SettingsRoute
   SuperAdminRoute: typeof SuperAdminRoute
@@ -117,6 +142,13 @@ declare module '@tanstack/react-router' {
       path: '/mail'
       fullPath: '/mail'
       preLoaderRoute: typeof MailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/logout': {
+      id: '/logout'
+      path: '/logout'
+      fullPath: '/logout'
+      preLoaderRoute: typeof LogoutRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -147,6 +179,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
   LoginRoute: LoginRoute,
+  LogoutRoute: LogoutRoute,
   MailRoute: MailRoute,
   SettingsRoute: SettingsRoute,
   SuperAdminRoute: SuperAdminRoute,
