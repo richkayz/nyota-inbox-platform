@@ -11,6 +11,9 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 
 export const Route = createFileRoute("/login")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    redirect: typeof search.redirect === "string" ? search.redirect : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Sign in — Nyota Inbox" },
@@ -21,6 +24,10 @@ export const Route = createFileRoute("/login")({
   }),
   component: LoginPage,
 });
+
+function isSafeRedirect(path: string | undefined): path is string {
+  return !!path && path.startsWith("/") && !path.startsWith("//");
+}
 
 function LoginPage() {
   const tenant = useTenant();
