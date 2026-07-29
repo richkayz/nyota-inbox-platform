@@ -43,6 +43,8 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Composer } from "@/components/mail/Composer";
 import { NotificationDrawer } from "@/components/mail/NotificationDrawer";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+
 
 export const Route = createFileRoute("/mail")({
   head: () => ({
@@ -76,6 +78,8 @@ function MailShell() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [replyDefaults, setReplyDefaults] = useState<{ to: string; subject: string } | null>(null);
+  const [logoutOpen, setLogoutOpen] = useState(false);
+
 
   useEffect(() => {
     if (!session) navigate({ to: "/login" });
@@ -94,6 +98,11 @@ function MailShell() {
     toast.success("Signed out");
     navigate({ to: "/login" });
   }
+
+  function openLogoutConfirm() {
+    setLogoutOpen(true);
+  }
+
 
   const initials = (session?.displayName ?? "You")
     .split(" ")
@@ -211,12 +220,13 @@ function MailShell() {
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={handleLogout}
+                onClick={openLogoutConfirm}
                 className="cursor-pointer text-destructive focus:text-destructive"
               >
                 <LogOut className="h-4 w-4" />
                 Sign out
               </DropdownMenuItem>
+
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -371,6 +381,17 @@ function MailShell() {
         onOpenChange={setComposerOpen}
         defaultTo={replyDefaults?.to}
         defaultSubject={replyDefaults?.subject}
+      />
+
+      <ConfirmDialog
+        open={logoutOpen}
+        onOpenChange={setLogoutOpen}
+        title="Sign out?"
+        description="You will be signed out of Nyota Inbox and returned to the login page."
+        confirmLabel="Sign out"
+        cancelLabel="Stay signed in"
+        onConfirm={handleLogout}
+        variant="destructive"
       />
     </div>
   );

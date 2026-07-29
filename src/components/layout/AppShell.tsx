@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useState } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { LogOut, Moon, Sun, Inbox as InboxIcon, User, Settings, ChevronDown } from "lucide-react";
 import { useTenant } from "@/components/branding/BrandProvider";
@@ -6,6 +7,7 @@ import { useTheme } from "@/components/theme/ThemeProvider";
 import { clearSession, getSession } from "@/lib/mock-auth";
 import { CORE_MODULES, ADMIN_MODULES } from "@/lib/mock-modules";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { NotificationDrawer } from "@/components/mail/NotificationDrawer";
 import {
   DropdownMenu,
@@ -17,6 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+
 
 export function AppShell({ children, title }: { children: ReactNode; title: string }) {
   const tenant = useTenant();
@@ -41,11 +44,18 @@ export function AppShell({ children, title }: { children: ReactNode; title: stri
     }),
   ];
 
+  const [logoutOpen, setLogoutOpen] = useState(false);
+
   function handleLogout() {
     clearSession();
     toast.success("Signed out");
     navigate({ to: "/login" });
   }
+
+  function openLogoutConfirm() {
+    setLogoutOpen(true);
+  }
+
 
   return (
     <div className="flex min-h-screen w-full bg-background text-foreground">
@@ -133,7 +143,7 @@ export function AppShell({ children, title }: { children: ReactNode; title: stri
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={handleLogout}
+                  onClick={openLogoutConfirm}
                   className="cursor-pointer text-destructive focus:text-destructive"
                 >
                   <LogOut className="h-4 w-4" />
@@ -144,6 +154,16 @@ export function AppShell({ children, title }: { children: ReactNode; title: stri
           </div>
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+        <ConfirmDialog
+          open={logoutOpen}
+          onOpenChange={setLogoutOpen}
+          title="Sign out?"
+          description="You will be signed out of Nyota Inbox and returned to the login page."
+          confirmLabel="Sign out"
+          cancelLabel="Stay signed in"
+          onConfirm={handleLogout}
+          variant="destructive"
+        />
       </div>
     </div>
   );
