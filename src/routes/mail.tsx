@@ -99,6 +99,11 @@ function MailShell() {
     navigate({ to: "/login" });
   }
 
+  function openLogoutConfirm() {
+    setLogoutOpen(true);
+  }
+
+
   const initials = (session?.displayName ?? "You")
     .split(" ")
     .map((s) => s[0])
