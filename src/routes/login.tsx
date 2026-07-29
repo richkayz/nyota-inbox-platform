@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { Mail, Lock, ArrowRight, Loader2, Moon, Sun } from "lucide-react";
 import { useTenant } from "@/components/branding/BrandProvider";
@@ -33,6 +33,7 @@ function LoginPage() {
   const tenant = useTenant();
   const { theme, toggle } = useTheme();
   const navigate = useNavigate();
+  const router = useRouter();
   const search = Route.useSearch();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -55,8 +56,12 @@ function LoginPage() {
       { remember },
     );
     toast.success(`Welcome back to ${tenant.name}`);
-    const target = isSafeRedirect(search.redirect) ? search.redirect : "/mail";
-    navigate({ to: target });
+    if (isSafeRedirect(search.redirect)) {
+      // Preserve pathname + query string + hash by pushing the raw href.
+      router.history.push(search.redirect);
+    } else {
+      navigate({ to: "/mail" });
+    }
   }
 
   return (
