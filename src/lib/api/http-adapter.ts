@@ -6,7 +6,6 @@ import type {
   Contact,
   Diagnostics,
   FolderSummary,
-  GatewayInfo,
   HealthCheck,
   MailClient,
   MessageDetail,
