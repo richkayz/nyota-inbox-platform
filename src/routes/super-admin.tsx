@@ -1,16 +1,14 @@
-import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, useNavigate, redirect, Link } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { getSession, getSessionStatus } from "@/lib/mock-auth";
+import { loadDraft, loadProvisionedTenants } from "@/lib/onboarding";
 import { Plus, Server, Building2, Activity } from "lucide-react";
-import { toast } from "sonner";
+
 
 export const Route = createFileRoute("/super-admin")({
   beforeLoad: ({ location }) => {
