@@ -14,9 +14,16 @@ async function bootstrap() {
     .map((s) => s.trim())
     .filter(Boolean);
 
+  // Entries may contain a single `*` wildcard label, e.g. https://*.lovable.app
+  const originMatchers = origins.map((o) =>
+    o.includes('*')
+      ? new RegExp('^' + o.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^./]+') + '$')
+      : o,
+  );
+
   app.use(helmet({ contentSecurityPolicy: false }));
   app.enableCors({
-    origin: origins.length > 0 ? origins : true,
+    origin: originMatchers.length > 0 ? originMatchers : true,
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Nyota-Session'],
