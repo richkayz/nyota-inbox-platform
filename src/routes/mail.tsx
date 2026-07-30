@@ -33,7 +33,9 @@ import {
   Download,
   ArrowLeft,
   WifiOff,
+  ImageOff,
   Loader2,
+
 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { useTenant } from "@/components/branding/BrandProvider";
