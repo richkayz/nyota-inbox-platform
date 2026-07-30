@@ -363,13 +363,14 @@ export class MailService {
 
   private async fetchEnvelopes(client: any, folder: string, uidRange: string): Promise<MessageListItem[]> {
     const out: MessageListItem[] = [];
+    const needsBackfill: Array<{ item: MessageListItem; structure: any }> = [];
     for await (const msg of client.fetch(
       uidRange,
       { uid: true, envelope: true, flags: true, bodyStructure: true, bodyParts: SNIPPET_PARTS },
       { uid: true },
     )) {
       const snippet = this.snippetFromParts(msg.bodyStructure, msg.bodyParts);
-      out.push({
+      const item: MessageListItem = {
         uid: Number(msg.uid),
         folder,
         from: this.addr(msg.envelope?.from?.[0]),
@@ -381,10 +382,57 @@ export class MailService {
         unread: !msg.flags?.has('\\Seen'),
         starred: !!msg.flags?.has('\\Flagged'),
         hasAttachment: this.collectAttachments(msg.bodyStructure).some((a) => !a.inline),
-      });
+      };
+      out.push(item);
+      if (!snippet) needsBackfill.push({ item, structure: msg.bodyStructure });
     }
+
+    // Speculative part numbers (1, 1.1, 2 …) miss non-standard MIME layouts —
+    // very common in Sent copies written by other clients. Download the real
+    // text part for those rows so previews are never blank.
+    for (const { item, structure } of needsBackfill) {
+      const snippet = await this.snippetByDownload(client, item.uid, structure);
+      if (snippet) {
+        item.snippet = snippet;
+        item.preview = snippet;
+      }
+    }
+
     return out.sort((a, b) => b.uid - a.uid);
   }
+
+  /** Downloads the best text part for one message and renders a preview. */
+  private async snippetByDownload(client: any, uid: number, structure: any): Promise<string> {
+    const candidates = this.textPartNumbers(structure);
+    const ordered = [
+      ...candidates.filter((c) => c.type === 'text/plain'),
+      ...candidates.filter((c) => c.type === 'text/html'),
+    ];
+    for (const candidate of ordered.slice(0, 3)) {
+      const raw = await this.downloadPartAsText(client, uid, candidate.part);
+      if (!raw) continue;
+      const flat = candidate.type === 'text/html' ? this.htmlToText(raw) : raw;
+      const clean = this.normalizeSnippet(flat);
+      if (clean) return clean;
+    }
+    return '';
+  }
+
+  private async downloadPartAsText(client: any, uid: number, part: string): Promise<string> {
+    try {
+      const dl = await client.download(String(uid), part, { uid: true });
+      if (!dl?.content) return '';
+      const chunks: Buffer[] = [];
+      for await (const chunk of dl.content as AsyncIterable<Buffer>) {
+        chunks.push(Buffer.from(chunk));
+        if (chunks.reduce((n, c) => n + c.length, 0) > 256 * 1024) break;
+      }
+      return Buffer.concat(chunks).toString('utf8');
+    } catch {
+      return '';
+    }
+  }
+
 
   /**
    * Picks the best textual body part from the speculative snippet fetch and
