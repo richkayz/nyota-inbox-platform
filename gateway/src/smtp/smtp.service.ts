@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createTransport, Transporter } from 'nodemailer';
 import { SessionStoreService } from '../auth/session-store.service';
+import { smtpBaseOptions } from './smtp-options';
 
 export interface OutgoingMessage {
   from: string;
@@ -33,10 +34,7 @@ export class SmtpService {
     if (!password) throw new Error('Session lost');
 
     const transporter: Transporter = createTransport({
-      host: process.env.SMTP_HOST ?? '127.0.0.1',
-      port: Number(process.env.SMTP_PORT ?? 587),
-      secure: (process.env.SMTP_SECURE ?? 'false') === 'true',
-      requireTLS: (process.env.SMTP_REQUIRE_TLS ?? 'true') === 'true',
+      ...smtpBaseOptions(),
       auth: { user: session.email, pass: password },
     });
 

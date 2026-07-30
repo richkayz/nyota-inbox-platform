@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ImapPoolService } from '../imap/imap-pool.service';
 import { SmtpService } from '../smtp/smtp.service';
 import { SessionStoreService } from '../auth/session-store.service';
+import { smtpBaseOptions } from '../smtp/smtp-options';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 
 const VERSION = process.env.npm_package_version ?? '0.1.0';
@@ -95,12 +96,9 @@ export class HealthController {
   /** Unauthenticated: opens the SMTP submission port and reads the banner. */
   @Get('smtp')
   async smtpHealth(): Promise<CheckResult> {
-    const host = process.env.SMTP_HOST ?? '127.0.0.1';
-    const port = Number(process.env.SMTP_PORT ?? 587);
-    const secure = (process.env.SMTP_SECURE ?? 'false') === 'true';
-    const requireTLS = (process.env.SMTP_REQUIRE_TLS ?? 'true') === 'true';
+    const opts = smtpBaseOptions();
     const r = await timed(async () => {
-      const transporter = createTransport({ host, port, secure, requireTLS, connectionTimeout: 4000 });
+      const transporter = createTransport({ ...opts, connectionTimeout: 4000 });
       try {
         await transporter.verify();
         return { verified: true };
@@ -112,7 +110,14 @@ export class HealthController {
       ok: r.ok,
       latencyMs: r.latencyMs,
       detail: r.error,
-      meta: { host, port, secure, requireTLS },
+      meta: {
+        host: opts.host,
+        port: opts.port,
+        secure: opts.secure,
+        requireTLS: opts.requireTLS,
+        tlsServername: opts.tls.servername ?? null,
+        rejectUnauthorized: opts.tls.rejectUnauthorized,
+      },
     };
   }
 
@@ -172,10 +177,7 @@ export class HealthController {
     const smtpAuth = await timed(async () => {
       if (!password) throw new Error('Session has no cached password');
       const transporter = createTransport({
-        host: process.env.SMTP_HOST ?? '127.0.0.1',
-        port: Number(process.env.SMTP_PORT ?? 587),
-        secure: (process.env.SMTP_SECURE ?? 'false') === 'true',
-        requireTLS: (process.env.SMTP_REQUIRE_TLS ?? 'true') === 'true',
+        ...smtpBaseOptions(),
         auth: { user: user.email, pass: password },
         connectionTimeout: 4000,
       });
@@ -249,10 +251,7 @@ export class HealthController {
     return timed(async () => {
       if (!password) throw new Error('Session has no cached password');
       const transporter = createTransport({
-        host: process.env.SMTP_HOST ?? '127.0.0.1',
-        port: Number(process.env.SMTP_PORT ?? 587),
-        secure: (process.env.SMTP_SECURE ?? 'false') === 'true',
-        requireTLS: (process.env.SMTP_REQUIRE_TLS ?? 'true') === 'true',
+        ...smtpBaseOptions(),
         auth: { user: user.email, pass: password },
         connectionTimeout: 4000,
       });
