@@ -302,6 +302,26 @@
   border-top: 1px solid var(--color-border);
 }
 .email-body :where(font, span)[color] { color: inherit !important; }
+/* Remote images the reader hasn't opted into: keep layout, show a placeholder. */
+.email-body :where(img)[data-blocked] {
+  display: inline-block;
+  min-width: 2rem;
+  min-height: 2rem;
+  border: 1px dashed var(--color-border);
+  border-radius: 0.375rem;
+  background-color: var(--color-muted);
+}
+
+/* Quoted original inside replies and forwards */
+.nyota-quote {
+  margin-top: 1em;
+  padding-left: 1em;
+  border-left: 2px solid var(--color-border);
+  color: var(--color-muted-foreground);
+}
+.nyota-quote :where(img) { max-width: 100%; height: auto; }
+
+
 
 /* Compose rich-text surface */
 .compose-editor:empty::before {
