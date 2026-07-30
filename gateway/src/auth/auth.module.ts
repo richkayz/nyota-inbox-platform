@@ -4,7 +4,7 @@ import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
-import { SessionStoreService } from './session-store.service';
+import { SessionModule } from './session.module';
 import { ImapModule } from '../imap/imap.module';
 import { AuditModule } from '../audit/audit.module';
 
@@ -12,11 +12,12 @@ import { AuditModule } from '../audit/audit.module';
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.register({}),
+    SessionModule,
     ImapModule,
     AuditModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, SessionStoreService],
-  exports: [AuthService, SessionStoreService, JwtModule],
+  providers: [AuthService, JwtStrategy],
+  exports: [AuthService, JwtModule],
 })
 export class AuthModule {}
