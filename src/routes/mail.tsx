@@ -384,6 +384,47 @@ function MailShell() {
     if (activeUid === m.uid) setDetailOpen(false);
   }
 
+  /**
+   * Opens the composer pre-filled Gmail-style: correct recipients for
+   * reply / reply-all / forward, the original quoted below, and threading
+   * headers so the reply lands in the same conversation.
+   */
+  function startCompose(mode: "reply" | "replyAll" | "forward", body?: string) {
+    if (!active) return;
+    const detail = detailQ.data;
+    const self = (session?.email ?? "").toLowerCase();
+    const replyTo = detail?.replyTo?.[0]?.address ?? active.from.address;
+    const messageId = detail?.headers?.["message-id"] ?? detail?.headers?.["Message-ID"];
+    const priorRefs = (detail?.headers?.["references"] ?? detail?.headers?.["References"] ?? "")
+      .split(/\s+/)
+      .filter(Boolean);
+
+    if (mode === "forward") {
+      setReplyDefaults({
+        subject: /^fwd?:/i.test(active.subject) ? active.subject : `Fwd: ${active.subject}`,
+        html: buildQuotedHtml(active, detail, "forward"),
+      });
+    } else {
+      const everyone = [
+        ...(detail?.to ?? active.to),
+        ...(detail?.cc ?? []),
+      ]
+        .map((r) => r.address)
+        .filter((a) => a && a.toLowerCase() !== self && a.toLowerCase() !== replyTo.toLowerCase());
+      setReplyDefaults({
+        to: replyTo,
+        cc: mode === "replyAll" ? Array.from(new Set(everyone)).join(", ") : undefined,
+        subject: /^re:/i.test(active.subject) ? active.subject : `Re: ${active.subject}`,
+        body,
+        html: buildQuotedHtml(active, detail, "reply"),
+        inReplyTo: messageId,
+        references: messageId ? [...priorRefs, messageId] : priorRefs,
+      });
+    }
+    setComposerOpen(true);
+  }
+
+
   const initials = initialsOf(session?.displayName ?? "You");
   if (!session) return null;
 
