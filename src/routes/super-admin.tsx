@@ -1,16 +1,14 @@
-import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, useNavigate, redirect, Link } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { getSession, getSessionStatus } from "@/lib/mock-auth";
+import { loadDraft, loadProvisionedTenants } from "@/lib/onboarding";
 import { Plus, Server, Building2, Activity } from "lucide-react";
-import { toast } from "sonner";
+
 
 export const Route = createFileRoute("/super-admin")({
   beforeLoad: ({ location }) => {
@@ -55,14 +53,26 @@ function SuperAdminPage() {
   }, [session, navigate]);
   if (!session) return null;
 
+  const onboarded = loadProvisionedTenants().map((d) => ({
+    id: d.slug,
+    name: d.companyName,
+    hostname: d.hostname,
+    server: d.mailServerId,
+    plan: d.plan.charAt(0).toUpperCase() + d.plan.slice(1),
+    users: d.mailboxes.length,
+    status: "provisioning",
+  }));
+  const tenants = [...onboarded, ...TENANTS];
+
   return (
     <AppShell title="Platform Admin">
       <div className="mx-auto max-w-6xl p-6">
         <div className="mb-6 grid gap-4 sm:grid-cols-3">
-          <Stat icon={Building2} label="Tenants" value={TENANTS.length.toString()} />
+          <Stat icon={Building2} label="Tenants" value={tenants.length.toString()} />
           <Stat icon={Server} label="Mail servers" value={SERVERS.length.toString()} />
-          <Stat icon={Activity} label="Active users" value={TENANTS.reduce((a, t) => a + t.users, 0).toString()} />
+          <Stat icon={Activity} label="Active users" value={tenants.reduce((a, t) => a + t.users, 0).toString()} />
         </div>
+
 
         <Tabs defaultValue="tenants">
           <TabsList>
@@ -89,7 +99,7 @@ function SuperAdminPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {TENANTS.map((t) => (
+                  {tenants.map((t) => (
                     <TableRow key={t.id}>
                       <TableCell className="font-medium">{t.name}</TableCell>
                       <TableCell className="font-mono text-xs">{t.hostname}</TableCell>
@@ -182,80 +192,21 @@ function Stat({ icon: Icon, label, value }: { icon: typeof Server; label: string
 }
 
 function OnboardWizard() {
-  const [open, setOpen] = useState(false);
-  const [step, setStep] = useState(1);
-  const [name, setName] = useState("");
-  const [hostname, setHostname] = useState("");
-
-  function next() {
-    if (step < 3) setStep(step + 1);
-    else {
-      setOpen(false);
-      setStep(1);
-      setName("");
-      setHostname("");
-      toast.success("Tenant queued for provisioning (mock)");
-    }
-  }
-
+  const draft = typeof window === "undefined" ? null : loadDraft();
+  const inProgress = draft && draft.companyName;
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm"><Plus className="mr-1 h-4 w-4" /> Onboard tenant</Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Onboard new tenant — step {step} of 3</DialogTitle>
-        </DialogHeader>
-
-        {step === 1 && (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Company name</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Acme Corp" />
-            </div>
-            <div className="space-y-2">
-              <Label>Hostname</Label>
-              <Input value={hostname} onChange={(e) => setHostname(e.target.value)} placeholder="inbox.acme.com" />
-            </div>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="space-y-3">
-            <Label>Assign to mail server</Label>
-            {SERVERS.map((s) => (
-              <label key={s.id} className="flex cursor-pointer items-center justify-between rounded-lg border border-border p-3 hover:bg-muted/40">
-                <div>
-                  <div className="text-sm font-medium">{s.id}</div>
-                  <div className="text-xs text-muted-foreground">{s.hostname} · {s.region}</div>
-                </div>
-                <input type="radio" name="server" defaultChecked={s.id === "plesk-eu-1"} />
-              </label>
-            ))}
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="space-y-3 text-sm">
-            <div className="rounded-lg border border-border bg-muted/30 p-3">
-              <div className="text-xs font-semibold text-muted-foreground">DNS setup for {hostname || "inbox.your-company.com"}</div>
-              <div className="mt-2 flex flex-wrap gap-2 font-mono text-xs">
-                <span className="rounded bg-card px-2 py-1">CNAME</span>
-                <span>{hostname || "inbox.your-company.com"}</span>
-                <span>→</span>
-                <span>tenants.nyota.one</span>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground">On save, Nyota will issue a TLS certificate and provision the branding row.</p>
-          </div>
-        )}
-
-        <div className="mt-4 flex justify-between">
-          <Button variant="ghost" size="sm" disabled={step === 1} onClick={() => setStep(step - 1)}>Back</Button>
-          <Button size="sm" onClick={next}>{step === 3 ? "Finish" : "Continue"}</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <div className="flex items-center gap-2">
+      {inProgress && (
+        <Badge variant="secondary" className="hidden sm:inline-flex">
+          Draft: {draft!.companyName} · step {draft!.step}/5
+        </Badge>
+      )}
+      <Button asChild size="sm">
+        <Link to="/onboarding">
+          <Plus className="mr-1 h-4 w-4" /> {inProgress ? "Resume onboarding" : "Onboard tenant"}
+        </Link>
+      </Button>
+    </div>
   );
 }
+

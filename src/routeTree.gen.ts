@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SuperAdminRouteImport } from './routes/super-admin'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as MailRouteImport } from './routes/mail'
 import { Route as LogoutRouteImport } from './routes/logout'
 import { Route as LoginRouteImport } from './routes/login'
@@ -27,6 +28,11 @@ const SuperAdminRoute = SuperAdminRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MailRoute = MailRouteImport.update({
@@ -72,6 +78,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/mail': typeof MailRoute
+  '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRouteWithChildren
   '/super-admin': typeof SuperAdminRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
@@ -83,6 +90,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/mail': typeof MailRoute
+  '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRouteWithChildren
   '/super-admin': typeof SuperAdminRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
@@ -95,6 +103,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/logout': typeof LogoutRoute
   '/mail': typeof MailRoute
+  '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRouteWithChildren
   '/super-admin': typeof SuperAdminRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
@@ -108,6 +117,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/logout'
     | '/mail'
+    | '/onboarding'
     | '/settings'
     | '/super-admin'
     | '/settings/diagnostics'
@@ -119,6 +129,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/logout'
     | '/mail'
+    | '/onboarding'
     | '/settings'
     | '/super-admin'
     | '/settings/diagnostics'
@@ -130,6 +141,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/logout'
     | '/mail'
+    | '/onboarding'
     | '/settings'
     | '/super-admin'
     | '/settings/diagnostics'
@@ -142,6 +154,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   LogoutRoute: typeof LogoutRoute
   MailRoute: typeof MailRoute
+  OnboardingRoute: typeof OnboardingRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   SuperAdminRoute: typeof SuperAdminRoute
 }
@@ -160,6 +173,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/mail': {
@@ -233,9 +253,20 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   LogoutRoute: LogoutRoute,
   MailRoute: MailRoute,
+  OnboardingRoute: OnboardingRoute,
   SettingsRoute: SettingsRouteWithChildren,
   SuperAdminRoute: SuperAdminRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
