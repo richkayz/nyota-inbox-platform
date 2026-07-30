@@ -238,7 +238,11 @@ function CompanyStep({ draft, patch }: StepProps) {
             className="font-mono"
             onChange={(e) => {
               const mailDomain = e.target.value.trim().toLowerCase();
-              patch({ mailDomain, hostname: draft.hostname || (mailDomain ? `inbox.${mailDomain}` : ""), domainVerified: false });
+              patch({
+                mailDomain,
+                hostname: draft.hostnameEdited ? draft.hostname : mailDomain ? `inbox.${mailDomain}` : "",
+                domainVerified: false,
+              });
             }}
           />
           <p className="text-xs text-muted-foreground">Existing Plesk domain that hosts the mailboxes.</p>
@@ -356,7 +360,7 @@ function DomainStep({ draft, patch }: StepProps) {
           value={draft.hostname}
           placeholder="inbox.acme.com"
           className="font-mono"
-          onChange={(e) => patch({ hostname: e.target.value.trim().toLowerCase(), domainVerified: false })}
+          onChange={(e) => patch({ hostname: e.target.value.trim().toLowerCase(), hostnameEdited: true, domainVerified: false })}
         />
         <p className="text-xs text-muted-foreground">Tenants are resolved by hostname — this is the URL your customer signs in on.</p>
       </div>
