@@ -375,7 +375,10 @@ export class MailService {
       if (conn) {
         try {
           const raw = this.buildRfc822(msg, res.messageId);
-          await conn.client.append('Sent', raw, ['\\Seen']);
+          // Dovecot/Plesk namespaces Sent as "INBOX.Sent" — resolve the real
+          // path instead of guessing, or the copy never lands in Sent.
+          const sentPath = await this.resolveSentPath(conn.client);
+          await conn.client.append(sentPath, raw, ['\\Seen']);
         } catch (e) {
           this.logger.warn(`Append-to-Sent failed: ${(e as Error).message}`);
         } finally {
@@ -383,6 +386,7 @@ export class MailService {
         }
       }
     }
+
     return res;
   }
 
