@@ -24,6 +24,17 @@ export class AuthController {
     return this.auth.refresh(dto.refreshToken, ipOf(req), req.headers['user-agent']);
   }
 
+  /**
+   * On-screen password change for the platform super-admin. No session needed —
+   * the current password is the proof of ownership.
+   */
+  @Post('platform-admin/password')
+  @HttpCode(204)
+  async changePlatformPassword(@Body() dto: ChangePlatformPasswordDto) {
+    await this.auth.changePlatformAdminPassword(dto.email, dto.currentPassword, dto.newPassword);
+  }
+
+
   @Post('logout')
   @HttpCode(204)
   @ApiBearerAuth()
