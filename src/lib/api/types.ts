@@ -148,6 +148,8 @@ export interface MailClient {
   login(email: string, password: string, tenantId?: string): Promise<AuthTokens>;
   refresh(): Promise<AuthTokens>;
   logout(): Promise<void>;
+  /** Platform super-admin only: change the console password from the sign-in screen. */
+  changePlatformAdminPassword(input: { email: string; currentPassword: string; newPassword: string }): Promise<void>;
 
   listFolders(): Promise<FolderSummary[]>;
   listMessages(input: { folder: string; cursor?: string | null; limit?: number; q?: string }): Promise<Page<MessageListItem>>;

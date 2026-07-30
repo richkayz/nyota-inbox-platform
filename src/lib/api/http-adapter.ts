@@ -92,6 +92,11 @@ export function createHttpAdapter(baseUrl: string): MailClient {
       return tokens;
     },
     refresh,
+    changePlatformAdminPassword: (input) =>
+      request<void>("/auth/platform-admin/password", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
     async logout() {
       try {
         await request<void>("/auth/logout", { method: "POST" });
