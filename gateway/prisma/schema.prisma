@@ -63,6 +63,8 @@ model RefreshToken {
 model Contact {
   id        String   @id @default(uuid())
   userId    String
+  /// Denormalized tenant guard column (defense in depth — MariaDB has no RLS).
+  tenantId  String?  @db.VarChar(64)
   email     String   @db.VarChar(320)
   name      String?  @db.VarChar(255)
   starred   Boolean  @default(false)
@@ -78,6 +80,8 @@ model Contact {
 model Signature {
   id        String   @id @default(uuid())
   userId    String
+  /// Denormalized tenant guard column (defense in depth — MariaDB has no RLS).
+  tenantId  String?  @db.VarChar(64)
   name      String   @db.VarChar(128)
   html      String   @db.Text
   isDefault Boolean  @default(false)
@@ -115,6 +119,8 @@ model NotificationSetting {
 model FolderCache {
   id             String   @id @default(uuid())
   userId         String
+  /// Denormalized tenant guard column (defense in depth — MariaDB has no RLS).
+  tenantId  String?  @db.VarChar(64)
   path           String   @db.VarChar(255)   // IMAP folder path e.g. "INBOX/Archive"
   name           String   @db.VarChar(255)
   role           String?  @db.VarChar(32)    // inbox|sent|drafts|spam|trash|archive|null
