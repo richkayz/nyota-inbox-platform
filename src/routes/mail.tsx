@@ -149,17 +149,70 @@ function formatMailDate(iso: string): string {
   return d.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
 }
 
-/** Sanitizes remote email HTML and neutralises layout-breaking markup. */
-function sanitizeEmailHtml(html: string): string {
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Sanitizes remote email HTML, neutralises layout-breaking markup and (unless
+ * the reader opted in) defuses remote images so senders can't track opens.
+ * Inline `cid:`/`data:` images are always shown — they ship with the message.
+ */
+function sanitizeEmailHtml(html: string, allowRemoteImages: boolean): { html: string; blocked: number } {
   const clean = DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true },
     FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "link", "meta", "base"],
     FORBID_ATTR: ["srcdoc", "onerror", "onload", "background"],
     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|cid|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
   });
-  // Force links to open in a new tab.
-  return clean.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer nofollow" ');
+
+  const doc = new DOMParser().parseFromString(clean, "text/html");
+  let blocked = 0;
+  if (!allowRemoteImages) {
+    doc.querySelectorAll("img[src]").forEach((img) => {
+      const src = img.getAttribute("src") ?? "";
+      if (/^https?:/i.test(src)) {
+        img.setAttribute("data-blocked-src", src);
+        img.removeAttribute("src");
+        img.setAttribute("data-blocked", "true");
+        blocked += 1;
+      }
+    });
+  }
+  doc.querySelectorAll("a[href]").forEach((a) => {
+    a.setAttribute("target", "_blank");
+    a.setAttribute("rel", "noopener noreferrer nofollow");
+  });
+  return { html: doc.body.innerHTML, blocked };
 }
+
+/** Gmail-style quoted original for replies and forwards. */
+function buildQuotedHtml(
+  summary: MessageListItem,
+  detail: MessageDetail | undefined,
+  mode: "reply" | "forward",
+): string {
+  const when = new Date(summary.date).toLocaleString();
+  const who = `${escapeHtml(summary.from.name ?? summary.from.address)} &lt;${escapeHtml(summary.from.address)}&gt;`;
+  const rawHtml = detail?.bodyHtml ?? detail?.html;
+  const rawText = detail?.bodyText ?? detail?.text ?? summary.snippet ?? summary.preview ?? "";
+  const body = rawHtml
+    ? sanitizeEmailHtml(rawHtml, true).html
+    : escapeHtml(rawText).replace(/\n/g, "<br>");
+
+  if (mode === "forward") {
+    const to = (detail?.to ?? summary.to).map((r) => escapeHtml(r.address)).join(", ");
+    return (
+      `<br><br><div class="nyota-quote">` +
+      `<p>---------- Forwarded message ----------</p>` +
+      `<p>From: ${who}<br>Date: ${escapeHtml(when)}<br>` +
+      `Subject: ${escapeHtml(summary.subject || "(no subject)")}<br>To: ${to}</p>` +
+      `${body}</div>`
+    );
+  }
+  return `<br><br><div class="nyota-quote"><p>On ${escapeHtml(when)}, ${who} wrote:</p>${body}</div>`;
+}
+
 
 function MailShell() {
   const tenant = useTenant();
