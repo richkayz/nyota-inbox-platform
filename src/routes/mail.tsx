@@ -743,19 +743,9 @@ function MailShell() {
               onArchive={() => archiveMessage(active)}
               onDelete={() => deleteMessage(active)}
               onSpam={() => spamMessage(active)}
-              onReply={() => {
-                setReplyDefaults({
-                  to: active.from.address,
-                  subject: /^re:/i.test(active.subject) ? active.subject : `Re: ${active.subject}`,
-                });
-                setComposerOpen(true);
-              }}
-              onForward={() => {
-                setReplyDefaults({
-                  subject: /^fwd?:/i.test(active.subject) ? active.subject : `Fwd: ${active.subject}`,
-                });
-                setComposerOpen(true);
-              }}
+              onReply={(body) => startCompose("reply", body)}
+              onReplyAll={() => startCompose("replyAll")}
+              onForward={() => startCompose("forward")}
             />
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-muted-foreground">
@@ -772,10 +762,14 @@ function MailShell() {
         open={composerOpen}
         onOpenChange={setComposerOpen}
         defaultTo={replyDefaults?.to}
+        defaultCc={replyDefaults?.cc}
         defaultSubject={replyDefaults?.subject}
+        defaultBody={replyDefaults?.body}
+        defaultHtml={replyDefaults?.html}
         inReplyTo={replyDefaults?.inReplyTo}
         references={replyDefaults?.references}
       />
+
 
       <ConfirmDialog
         open={logoutOpen}
