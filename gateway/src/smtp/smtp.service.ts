@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { createTransport, Transporter } from 'nodemailer';
+import { createTransport, SendMailOptions, Transporter } from 'nodemailer';
 import { SessionStoreService } from '../auth/session-store.service';
 import { smtpBaseOptions } from './smtp-options';
 
@@ -27,7 +27,7 @@ export class SmtpService {
 
   constructor(private readonly sessions: SessionStoreService) {}
 
-  async send(sessionId: string, msg: OutgoingMessage): Promise<{ messageId: string }> {
+  async send(sessionId: string, msg: OutgoingMessage): Promise<{ messageId: string; raw: Buffer }> {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error('No live session');
     const password = this.sessions.password(sessionId);
@@ -39,7 +39,7 @@ export class SmtpService {
     });
 
     try {
-      const info = await transporter.sendMail({
+      const mail: SendMailOptions = {
         from: msg.from || session.email,
         to: msg.to,
         cc: msg.cc,
@@ -54,8 +54,20 @@ export class SmtpService {
           content: Buffer.from(a.content, 'base64'),
           contentType: a.contentType,
         })),
-      });
-      return { messageId: info.messageId };
+      };
+      const info = await transporter.sendMail(mail);
+
+      // Build the Sent copy with Nodemailer's MIME composer rather than a
+      // separate handwritten representation. This preserves multipart HTML,
+      // plain text, inline content and attachments exactly as a mail client
+      // expects, while keeping Postfix as the delivery path.
+      const composer = createTransport({ streamTransport: true, buffer: true, newline: 'windows' });
+      const composed = await composer.sendMail({ ...mail, messageId: info.messageId });
+      const raw = Buffer.isBuffer(composed.message)
+        ? composed.message
+        : Buffer.from(String(composed.message ?? ''), 'utf8');
+
+      return { messageId: info.messageId, raw };
     } finally {
       transporter.close();
     }
