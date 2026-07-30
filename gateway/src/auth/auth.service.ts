@@ -1,4 +1,5 @@
 import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { SessionStoreService } from './session-store.service';
@@ -6,11 +7,17 @@ import { ImapPoolService } from '../imap/imap-pool.service';
 import { AuditService } from '../audit/audit.service';
 import { sha256 } from './crypto.util';
 import type { LoginDto } from './dto/login.dto';
+import { isPlatformAdminEmail, platformAdminConfig, verifyPlatformAdminPassword } from './platform-admin';
 
 export interface TokenPair {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  /** Effective role of the signed-in principal, so the UI can route on it. */
+  role: 'USER' | 'COMPANY_ADMIN' | 'SUPER_ADMIN';
+  email: string;
+  /** False for the platform admin, which has no mailbox behind it. */
+  hasMailbox: boolean;
 }
 
 @Injectable()
@@ -26,6 +33,12 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto, ip?: string, userAgent?: string): Promise<TokenPair> {
+    // Platform super-admin: authenticated against the configured scrypt hash,
+    // never against Dovecot (this identity owns no mailbox).
+    if (isPlatformAdminEmail(dto.email)) {
+      return this.loginPlatformAdmin(dto, ip, userAgent);
+    }
+
     // 1. Verify the mailbox credentials against Dovecot with a short IMAP handshake.
     const ok = await this.pool.verifyCredentials(dto.email, dto.password);
     if (!ok) {
@@ -71,6 +84,63 @@ export class AuthService {
     });
 
     return tokens;
+  }
+
+  private async loginPlatformAdmin(dto: LoginDto, ip?: string, userAgent?: string): Promise<TokenPair> {
+    const cfg = platformAdminConfig()!;
+    if (!verifyPlatformAdminPassword(dto.password, cfg.passwordHash)) {
+      await this.audit.record({
+        tenantId: 'platform',
+        type: 'login.failure',
+        email: cfg.email,
+        ip,
+        userAgent,
+      });
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const user = await this.prisma.user.upsert({
+      where: { email: cfg.email },
+      update: { role: 'SUPER_ADMIN', tenantId: 'platform', lastLoginAt: new Date() },
+      create: {
+        email: cfg.email,
+        tenantId: 'platform',
+        displayName: 'Platform Admin',
+        role: 'SUPER_ADMIN',
+        lastLoginAt: new Date(),
+      },
+    });
+
+    // A session record is still created (so refresh works), but it holds a
+    // random throwaway secret: there is no mailbox to open with it.
+    const session = this.sessions.create({
+      userId: user.id,
+      email: user.email,
+      tenantId: user.tenantId,
+      password: randomUUID(),
+    });
+
+    const tokens = await this.issueTokens(
+      user.id,
+      user.email,
+      user.tenantId,
+      'SUPER_ADMIN',
+      session.sessionId,
+      ip,
+      userAgent,
+    );
+
+    await this.audit.record({
+      userId: user.id,
+      tenantId: user.tenantId,
+      type: 'login.success',
+      email: user.email,
+      ip,
+      userAgent,
+      meta: { platformAdmin: true },
+    });
+
+    return { ...tokens, hasMailbox: false };
   }
 
   async refresh(refreshToken: string, ip?: string, userAgent?: string): Promise<TokenPair> {
@@ -149,7 +219,7 @@ export class AuthService {
       },
     });
 
-    return { accessToken, refreshToken, expiresIn: accessTtl };
+    return { accessToken, refreshToken, expiresIn: accessTtl, role, email, hasMailbox: role !== 'SUPER_ADMIN' };
   }
 
   private tenantFromEmail(email: string): string {
