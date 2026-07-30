@@ -29,11 +29,15 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultTo?: string;
+  defaultCc?: string;
   defaultSubject?: string;
   defaultBody?: string;
+  /** Pre-rendered HTML (e.g. a quoted original message) inserted below the cursor. */
+  defaultHtml?: string;
   inReplyTo?: string;
   references?: string[];
 }
+
 
 interface Attachment {
   id: string;
