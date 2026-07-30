@@ -157,6 +157,9 @@ export interface MailClient {
   upsertContact(input: { email: string; name?: string; starred?: boolean }): Promise<Contact>;
   removeContact(id: string): Promise<void>;
 
+  listAudit(input: { cursor?: string | null; limit?: number }): Promise<Page<AuditRecord>>;
+
+
   diagnostics(): Promise<Diagnostics>;
   testImap(): Promise<HealthCheck>;
   testSmtp(): Promise<HealthCheck>;
