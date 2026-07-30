@@ -1,5 +1,5 @@
-import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, useNavigate, redirect, Link } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -7,10 +7,26 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getSession, getSessionStatus } from "@/lib/mock-auth";
 import { getAuditEntries, auditEventLabel, type AuditEntry } from "@/lib/audit-log";
 import { useTenant } from "@/components/branding/BrandProvider";
-import { UserPlus, ShieldCheck, Palette, Globe2, CheckCircle2, ScrollText } from "lucide-react";
+import { useAuditLogInfinite, useContactsInfinite, useDiagnostics, useFolders } from "@/lib/api/queries";
+import { isLiveMode } from "@/lib/api/client";
+import {
+  UserPlus,
+  ShieldCheck,
+  Palette,
+  Globe2,
+  CheckCircle2,
+  ScrollText,
+  Inbox as InboxIcon,
+  MailCheck,
+  Users,
+  Activity,
+  AlertTriangle,
+  Stethoscope,
+} from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/admin")({
@@ -31,7 +47,11 @@ export const Route = createFileRoute("/admin")({
   head: () => ({
     meta: [
       { title: "Company Admin — Nyota Inbox" },
-      { name: "description", content: "Manage users, branding and domain for your company inbox." },
+      { name: "description", content: "Company dashboard, mailbox users, branding, domain and audit log for your Nyota Inbox tenant." },
+      { property: "og:title", content: "Company Admin — Nyota Inbox" },
+      { property: "og:description", content: "Dashboard, mailboxes, branding and audit log for your company inbox." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -59,14 +79,19 @@ function AdminPage() {
   return (
     <AppShell title="Company Admin">
       <div className="mx-auto max-w-5xl p-6">
-        <Tabs defaultValue="users">
+        <Tabs defaultValue="dashboard">
           <TabsList>
+            <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="branding">Branding</TabsTrigger>
             <TabsTrigger value="domain">Domain</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="audit">Audit log</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="dashboard" className="mt-6">
+            <DashboardTab tenantId={tenant.id} tenantName={tenant.name} />
+          </TabsContent>
 
           <TabsContent value="users" className="mt-6">
             <Card>
@@ -75,7 +100,7 @@ function AdminPage() {
                   <h2 className="text-base font-semibold">Users</h2>
                   <p className="text-xs text-muted-foreground">{MOCK_USERS.length} people in {tenant.name}</p>
                 </div>
-                <Button size="sm" onClick={() => toast("Invite flow — pending Cloud")}>
+                <Button size="sm" onClick={() => toast("Mailbox provisioning requires the Plesk API endpoints")}>
                   <UserPlus className="mr-1 h-4 w-4" /> Invite user
                 </Button>
               </div>
@@ -102,12 +127,17 @@ function AdminPage() {
                         <Badge variant={u.status === "active" ? "outline" : "secondary"}>{u.status}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button size="sm" variant="ghost" onClick={() => toast(`Edit ${u.name} — pending`)}>Edit</Button>
+                        <Button size="sm" variant="ghost" onClick={() => toast(`Edit ${u.name} — pending Plesk provisioning`)}>Edit</Button>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+              <p className="mt-4 rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
+                Mailbox creation, suspension and quota changes are performed against Plesk. Until those
+                gateway endpoints are enabled this list is a placeholder — sign-in itself already
+                authenticates against your live Dovecot mailboxes.
+              </p>
             </Card>
           </TabsContent>
 
@@ -147,7 +177,7 @@ function AdminPage() {
                 </div>
               </div>
               <div className="mt-5 flex justify-end">
-                <Button onClick={() => toast.success("Branding saved (mock)")}>Save branding</Button>
+                <Button onClick={() => toast.success("Branding saved (local)")}>Save branding</Button>
               </div>
             </Card>
           </TabsContent>
@@ -215,15 +245,190 @@ function SecurityRow({ label, enabled }: { label: string; enabled: boolean }) {
   );
 }
 
+/* ------------------------------- Dashboard ------------------------------- */
+
+function DashboardTab({ tenantId, tenantName }: { tenantId: string; tenantName: string }) {
+  const folders = useFolders();
+  const contacts = useContactsInfinite();
+  const diagnostics = useDiagnostics();
+  const audit = useAuditLogInfinite(isLiveMode);
+
+  const totals = useMemo(() => {
+    const list = folders.data ?? [];
+    const byRole = (role: string) => list.find((f) => f.role === role);
+    const inbox = byRole("inbox");
+    const sent = byRole("sent");
+    return {
+      messages: list.reduce((n, f) => n + (f.totalCount ?? 0), 0),
+      unread: inbox?.unreadCount ?? list.reduce((n, f) => n + (f.unreadCount ?? 0), 0),
+      inbox: inbox?.totalCount ?? 0,
+      sent: sent?.totalCount ?? 0,
+    };
+  }, [folders.data]);
+
+  const contactCount = contacts.data?.pages.reduce((n, p) => n + p.items.length, 0) ?? 0;
+
+  const localEvents = useMemo(() => getAuditEntries(tenantId, 6), [tenantId]);
+  const recent = (audit.data?.pages[0]?.items ?? []).slice(0, 6);
+
+  const checks = diagnostics.data?.checks;
+  const health = checks
+    ? [
+        { label: "IMAP (Dovecot)", ok: checks.imapAuth.ok || checks.imapReachable.ok },
+        { label: "SMTP (Postfix)", ok: checks.smtpAuth.ok || checks.smtpReachable.ok },
+        { label: "Database", ok: checks.database.ok },
+      ]
+    : [];
+  const degraded = health.filter((h) => !h.ok);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="Messages stored on server" value={totals.messages} icon={InboxIcon} loading={folders.isLoading} />
+        <Stat label="Unread in Inbox" value={totals.unread} icon={AlertTriangle} loading={folders.isLoading} />
+        <Stat label="Sent items" value={totals.sent} icon={MailCheck} loading={folders.isLoading} />
+        <Stat label="Contacts" value={contactCount} icon={Users} loading={contacts.isLoading} />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-base font-semibold">
+              <Stethoscope className="h-4 w-4" /> Mail server health
+            </h2>
+            <Link to="/settings/diagnostics" className="text-xs text-primary hover:underline">
+              Diagnostics
+            </Link>
+          </div>
+          {diagnostics.isLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-6 w-full" />
+              <Skeleton className="h-6 w-full" />
+              <Skeleton className="h-6 w-2/3" />
+            </div>
+          ) : diagnostics.isError ? (
+            <p className="text-sm text-muted-foreground">Could not reach the gateway health endpoint.</p>
+          ) : (
+            <>
+              <ul className="space-y-3 text-sm">
+                {health.map((h) => (
+                  <li key={h.label} className="flex items-center justify-between border-b border-border pb-3 last:border-0 last:pb-0">
+                    <span>{h.label}</span>
+                    <Badge variant={h.ok ? "default" : "destructive"}>{h.ok ? "Healthy" : "Attention"}</Badge>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-4 text-xs text-muted-foreground">
+                Mode: {diagnostics.data?.mode ?? "—"} · gateway v{diagnostics.data?.gateway.version ?? "—"}
+                {degraded.length > 0 ? ` · ${degraded.length} check(s) need attention` : " · all systems nominal"}
+              </p>
+            </>
+          )}
+        </Card>
+
+        <Card>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-base font-semibold">
+              <Activity className="h-4 w-4" /> Recent activity
+            </h2>
+            <span className="text-xs text-muted-foreground">{tenantName}</span>
+          </div>
+          {isLiveMode ? (
+            audit.isLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-5 w-full" />
+                <Skeleton className="h-5 w-4/5" />
+                <Skeleton className="h-5 w-3/5" />
+              </div>
+            ) : recent.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No server-side events recorded yet.</p>
+            ) : (
+              <ul className="space-y-3 text-sm">
+                {recent.map((e) => (
+                  <li key={e.id} className="flex items-start justify-between gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
+                    <div>
+                      <div className="font-medium">{auditEventLabel(e.type as AuditEntry["type"]) ?? e.type}</div>
+                      <div className="text-xs text-muted-foreground">{e.email ?? "—"}</div>
+                    </div>
+                    <span className="whitespace-nowrap text-xs text-muted-foreground">
+                      {new Date(e.createdAt).toLocaleString()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : localEvents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No local events recorded yet.</p>
+          ) : (
+            <ul className="space-y-3 text-sm">
+              {localEvents.map((e) => (
+                <li key={e.id} className="flex items-start justify-between gap-3 border-b border-border pb-3 last:border-0 last:pb-0">
+                  <div>
+                    <div className="font-medium">{auditEventLabel(e.type)}</div>
+                    <div className="text-xs text-muted-foreground">{e.email ?? "—"}</div>
+                  </div>
+                  <span className="whitespace-nowrap text-xs text-muted-foreground">
+                    {new Date(e.at).toLocaleString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  icon: Icon,
+  loading,
+}: {
+  label: string;
+  value: number;
+  icon: React.ComponentType<{ className?: string }>;
+  loading?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        <Icon className="h-4 w-4 text-muted-foreground" />
+      </div>
+      {loading ? (
+        <Skeleton className="mt-3 h-8 w-20" />
+      ) : (
+        <div className="mt-2 text-3xl font-semibold tabular-nums">{value.toLocaleString()}</div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------- Audit log ------------------------------- */
+
 function AuditLogTab({ tenantId, tenantName }: { tenantId: string; tenantName: string }) {
-  const [entries, setEntries] = useState<AuditEntry[]>(() => getAuditEntries(tenantId, 200));
-  const [filter, setFilter] = useState<"all" | AuditEntry["type"]>("all");
+  const server = useAuditLogInfinite(isLiveMode);
+  const [localEntries, setLocalEntries] = useState<AuditEntry[]>(() => getAuditEntries(tenantId, 200));
+  const [filter, setFilter] = useState<string>("all");
+
+  const rows = isLiveMode
+    ? (server.data?.pages.flatMap((p) => p.items) ?? []).map((e) => ({
+        id: e.id,
+        at: e.createdAt,
+        type: e.type,
+        email: e.email ?? undefined,
+        userAgent: e.userAgent ?? undefined,
+      }))
+    : localEntries.map((e) => ({ id: e.id, at: e.at, type: e.type as string, email: e.email, userAgent: e.userAgent }));
+
+  const visible = filter === "all" ? rows : rows.filter((r) => r.type === filter);
 
   function refresh() {
-    setEntries(getAuditEntries(tenantId, 200));
+    if (isLiveMode) server.refetch();
+    else setLocalEntries(getAuditEntries(tenantId, 200));
   }
-
-  const visible = filter === "all" ? entries : entries.filter((e) => e.type === filter);
 
   return (
     <Card>
@@ -233,70 +438,100 @@ function AuditLogTab({ tenantId, tenantName }: { tenantId: string; tenantName: s
             <ScrollText className="h-4 w-4" /> Audit log
           </h2>
           <p className="text-xs text-muted-foreground">
-            Authentication events for {tenantName} · {entries.length} recorded
+            {isLiveMode ? "Hash-chained gateway events" : "Local browser events"} for {tenantName} · {rows.length} loaded
           </p>
         </div>
         <div className="flex items-center gap-2">
           <select
             value={filter}
-            onChange={(e) => setFilter(e.target.value as typeof filter)}
+            onChange={(e) => setFilter(e.target.value)}
             className="h-9 rounded-md border border-border bg-background px-2 text-sm"
           >
             <option value="all">All events</option>
             <option value="login.success">Sign in</option>
+            <option value="login.failure">Sign-in failed</option>
             <option value="logout">Sign out</option>
             <option value="session.expired">Session expired</option>
-            <option value="password.reset.requested">Password reset requested</option>
-            <option value="password.reset.completed">Password reset completed</option>
+            <option value="mail.send">Mail sent</option>
           </select>
-          <Button size="sm" variant="outline" onClick={refresh}>Refresh</Button>
+          <Button size="sm" variant="outline" onClick={refresh} disabled={server.isFetching}>
+            Refresh
+          </Button>
         </div>
       </div>
 
-      {visible.length === 0 ? (
+      {isLiveMode && server.isLoading ? (
+        <div className="space-y-2">
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-9 w-full" />
+        </div>
+      ) : isLiveMode && server.isError ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          No events recorded yet. Sign in, sign out, or let a session expire to see entries here.
+          Could not load the audit log. Company admin role is required on the gateway.
+        </div>
+      ) : visible.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+          No events recorded yet. Sign in, send mail, or let a session expire to see entries here.
         </div>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>When</TableHead>
-              <TableHead>Event</TableHead>
-              <TableHead>User</TableHead>
-              <TableHead>Device</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {visible.map((e) => (
-              <TableRow key={e.id}>
-                <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                  {new Date(e.at).toLocaleString()}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={eventBadgeVariant(e.type)}>{auditEventLabel(e.type)}</Badge>
-                </TableCell>
-                <TableCell className="text-sm">{e.email ?? "—"}</TableCell>
-                <TableCell className="max-w-[280px] truncate text-xs text-muted-foreground" title={e.userAgent}>
-                  {shortUserAgent(e.userAgent)}
-                </TableCell>
+        <>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>When</TableHead>
+                <TableHead>Event</TableHead>
+                <TableHead>User</TableHead>
+                <TableHead>Device</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {visible.map((e) => (
+                <TableRow key={e.id}>
+                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                    {new Date(e.at).toLocaleString()}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={eventBadgeVariant(e.type)}>
+                      {auditEventLabel(e.type as AuditEntry["type"]) ?? e.type}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-sm">{e.email ?? "—"}</TableCell>
+                  <TableCell className="max-w-[280px] truncate text-xs text-muted-foreground" title={e.userAgent}>
+                    {shortUserAgent(e.userAgent)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          {isLiveMode && server.hasNextPage && (
+            <div className="mt-4 flex justify-center">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => server.fetchNextPage()}
+                disabled={server.isFetchingNextPage}
+              >
+                {server.isFetchingNextPage ? "Loading…" : "Load more"}
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </Card>
   );
 }
 
-function eventBadgeVariant(type: AuditEntry["type"]): "default" | "secondary" | "destructive" | "outline" {
+function eventBadgeVariant(type: string): "default" | "secondary" | "destructive" | "outline" {
   switch (type) {
-    case "login.success": return "default";
-    case "logout": return "secondary";
-    case "session.expired": return "destructive";
-    case "login.failure": return "destructive";
-    case "password.reset.requested":
-    case "password.reset.completed":
+    case "login.success":
+      return "default";
+    case "logout":
+      return "secondary";
+    case "session.expired":
+    case "login.failure":
+      return "destructive";
+    default:
       return "outline";
   }
 }
