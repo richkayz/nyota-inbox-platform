@@ -2,6 +2,7 @@
 // Handles bearer-token attachment and one automatic refresh on 401.
 
 import type {
+  AuditRecord,
   AuthTokens,
   Contact,
   Diagnostics,
