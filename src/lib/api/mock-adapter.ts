@@ -201,6 +201,12 @@ export function createMockAdapter(): MailClient {
       return m;
     },
 
+    async downloadAttachment() {
+      await delay(120);
+      return new Blob(["mock attachment"], { type: "text/plain" });
+    },
+
+
     async setFlags(_folder, uid, add, remove) {
       await delay(80);
       const m = store.messages.get(uid);

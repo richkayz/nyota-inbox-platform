@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { simpleParser, type ParsedMail } from 'mailparser';
 import { ImapPoolService } from '../imap/imap-pool.service';
 import { SmtpService, OutgoingMessage } from '../smtp/smtp.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -12,13 +13,30 @@ export interface FolderSummary {
   unreadCount: number;
 }
 
+export interface MessageAddress {
+  name?: string;
+  address: string;
+}
+
+export interface AttachmentMeta {
+  /** IMAP body part number — used by the download endpoint. */
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  contentId?: string;
+  inline?: boolean;
+}
+
 export interface MessageListItem {
   uid: number;
   folder: string;
-  from: { name?: string; address: string };
-  to: Array<{ name?: string; address: string }>;
+  from: MessageAddress;
+  to: MessageAddress[];
   subject: string;
+  /** First ~250 chars of the plain-text body. */
   preview: string;
+  snippet: string;
   date: string;
   unread: boolean;
   starred: boolean;
@@ -27,10 +45,16 @@ export interface MessageListItem {
 }
 
 export interface MessageDetail extends MessageListItem {
+  cc: MessageAddress[];
+  bcc: MessageAddress[];
+  replyTo: MessageAddress[];
   bodyText?: string;
   bodyHtml?: string;
+  /** Aliases matching the documented gateway contract. */
+  text?: string;
+  html?: string;
   headers: Record<string, string>;
-  attachments: Array<{ id: string; filename: string; contentType: string; size: number }>;
+  attachments: AttachmentMeta[];
 }
 
 export interface Page<T> {
@@ -47,6 +71,11 @@ const ROLE_MAP: Record<string, string> = {
   '\\Archive': 'archive',
   '\\All': 'archive',
 };
+
+/** Body parts we speculatively fetch for list snippets. Dovecot returns NIL for
+ * parts that do not exist, so over-asking is safe and keeps listing to one
+ * round trip per page. */
+const SNIPPET_PARTS = ['1', '1.1', '1.2', '2', '2.1'];
 
 @Injectable()
 export class MailService {
@@ -131,10 +160,7 @@ export class MailService {
       let matchedUids: number[] | null = null;
 
       if (q) {
-        const results = (await conn.client.search({ text: q }, { uid: true })) as number[] | false;
-        matchedUids = Array.isArray(results)
-          ? [...results].sort((a: number, b: number) => b - a)
-          : [];
+        matchedUids = await this.searchUids(conn.client, q);
       }
 
       let startUid: number;
@@ -170,33 +196,100 @@ export class MailService {
     }
   }
 
+  /**
+   * Server-side search across subject, from, to/cc, body text and attachment
+   * filenames. IMAP `TEXT` covers headers + body; the filename term is OR-ed in
+   * for servers that index Content-Disposition parameters.
+   */
+  private async searchUids(client: any, q: string): Promise<number[]> {
+    const term = q.trim();
+    const queries: any[] = [
+      { or: [{ text: term }, { header: { 'content-disposition': term } }] },
+      { text: term },
+      {
+        or: [
+          { subject: term },
+          { from: term },
+          { to: term },
+          { cc: term },
+          { body: term },
+        ],
+      },
+    ];
+    for (const query of queries) {
+      try {
+        const res = (await client.search(query, { uid: true })) as number[] | false;
+        if (Array.isArray(res)) return [...res].sort((a, b) => b - a);
+      } catch {
+        /* try the next, simpler form */
+      }
+    }
+    return [];
+  }
+
   async getMessage(sessionId: string, folder: string, uid: number): Promise<MessageDetail> {
     const conn = await this.pool.acquire(sessionId);
     try {
       await conn.client.mailboxOpen(folder, { readOnly: true });
       const msg = await conn.client.fetchOne(
         String(uid),
-        { uid: true, envelope: true, flags: true, bodyStructure: true, source: true, headers: true },
+        { uid: true, envelope: true, flags: true, bodyStructure: true, source: true },
         { uid: true },
       );
       if (!msg) throw new NotFoundException('Message not found');
 
       const parsed = await this.parseSource(msg.source as Buffer);
+      const structureAttachments = this.collectAttachments(msg.bodyStructure);
+      const attachments = this.mergeAttachments(structureAttachments, parsed);
+      const text = parsed.text?.trim() ? parsed.text : undefined;
+      const html = parsed.html?.trim() ? parsed.html : undefined;
+      const snippet = this.buildSnippet(text, html);
+
       return {
         uid: Number(msg.uid),
         folder,
         from: this.addr(msg.envelope?.from?.[0]),
         to: (msg.envelope?.to ?? []).map((a) => this.addr(a)),
-        subject: msg.envelope?.subject ?? '',
-        preview: (parsed.text ?? '').slice(0, 200),
-        date: msg.envelope?.date?.toISOString() ?? new Date().toISOString(),
+        cc: (msg.envelope?.cc ?? []).map((a) => this.addr(a)),
+        bcc: (msg.envelope?.bcc ?? []).map((a) => this.addr(a)),
+        replyTo: (msg.envelope?.replyTo ?? []).map((a) => this.addr(a)),
+        subject: msg.envelope?.subject ?? parsed.subject ?? '',
+        preview: snippet,
+        snippet,
+        date: (msg.envelope?.date ?? parsed.date ?? new Date()).toISOString(),
         unread: !msg.flags?.has('\\Seen'),
         starred: !!msg.flags?.has('\\Flagged'),
-        hasAttachment: parsed.attachments.length > 0,
-        bodyText: parsed.text,
-        bodyHtml: parsed.html,
+        hasAttachment: attachments.some((a) => !a.inline),
+        bodyText: text,
+        bodyHtml: html,
+        text,
+        html,
         headers: parsed.headers,
-        attachments: parsed.attachments,
+        attachments,
+      };
+    } finally {
+      this.pool.release(sessionId, conn);
+    }
+  }
+
+  /** Streams a single attachment (by IMAP body part) back to the caller. */
+  async downloadAttachment(
+    sessionId: string,
+    folder: string,
+    uid: number,
+    part: string,
+  ): Promise<{ content: Buffer; filename: string; contentType: string }> {
+    const conn = await this.pool.acquire(sessionId);
+    try {
+      await conn.client.mailboxOpen(folder, { readOnly: true });
+      const dl = await conn.client.download(String(uid), part, { uid: true });
+      if (!dl?.content) throw new NotFoundException('Attachment not found');
+      const chunks: Buffer[] = [];
+      for await (const chunk of dl.content as AsyncIterable<Buffer>) chunks.push(Buffer.from(chunk));
+      return {
+        content: Buffer.concat(chunks),
+        filename: (dl.meta?.filename as string) || `attachment-${part}`,
+        contentType: (dl.meta?.contentType as string) || 'application/octet-stream',
       };
     } finally {
       this.pool.release(sessionId, conn);
@@ -261,45 +354,210 @@ export class MailService {
 
   private async fetchEnvelopes(client: any, folder: string, uidRange: string): Promise<MessageListItem[]> {
     const out: MessageListItem[] = [];
-    for await (const msg of client.fetch(uidRange, { uid: true, envelope: true, flags: true, bodyStructure: true }, { uid: true })) {
+    for await (const msg of client.fetch(
+      uidRange,
+      { uid: true, envelope: true, flags: true, bodyStructure: true, bodyParts: SNIPPET_PARTS },
+      { uid: true },
+    )) {
+      const snippet = this.snippetFromParts(msg.bodyStructure, msg.bodyParts);
       out.push({
         uid: Number(msg.uid),
         folder,
         from: this.addr(msg.envelope?.from?.[0]),
         to: (msg.envelope?.to ?? []).map((a: any) => this.addr(a)),
         subject: msg.envelope?.subject ?? '',
-        preview: '',
+        preview: snippet,
+        snippet,
         date: msg.envelope?.date?.toISOString() ?? new Date().toISOString(),
         unread: !msg.flags?.has('\\Seen'),
         starred: !!msg.flags?.has('\\Flagged'),
-        hasAttachment: this.structureHasAttachment(msg.bodyStructure),
+        hasAttachment: this.collectAttachments(msg.bodyStructure).some((a) => !a.inline),
       });
     }
     return out.sort((a, b) => b.uid - a.uid);
   }
 
-  private structureHasAttachment(part: any): boolean {
-    if (!part) return false;
-    if (part.disposition === 'attachment') return true;
-    if (Array.isArray(part.childNodes)) return part.childNodes.some((c: any) => this.structureHasAttachment(c));
-    return false;
+  /**
+   * Picks the best textual body part from the speculative snippet fetch and
+   * renders it down to a plain, single-line preview.
+   */
+  private snippetFromParts(structure: any, parts: Map<string, Buffer> | undefined): string {
+    if (!parts || parts.size === 0) return '';
+    const candidates = this.textPartNumbers(structure);
+    const ordered = [
+      ...candidates.filter((c) => c.type === 'text/plain').map((c) => c.part),
+      ...candidates.filter((c) => c.type === 'text/html').map((c) => c.part),
+      ...SNIPPET_PARTS,
+    ];
+    for (const part of ordered) {
+      const buf = parts.get(part) ?? parts.get(part.toUpperCase());
+      if (!buf || buf.length === 0) continue;
+      const raw = buf.toString('utf8');
+      const isHtml = /<[a-z!/]/i.test(raw) && /<\/?(html|body|div|p|table|br)/i.test(raw);
+      const flat = isHtml ? this.htmlToText(raw) : raw;
+      const clean = this.normalizeSnippet(flat);
+      if (clean) return clean;
+    }
+    return '';
   }
 
-  private addr(a: any): { name?: string; address: string } {
+  private textPartNumbers(part: any, prefix = ''): Array<{ part: string; type: string }> {
+    if (!part) return [];
+    const type = String(part.type ?? '').toLowerCase();
+    const number: string = part.part ?? prefix ?? '1';
+    if (Array.isArray(part.childNodes) && part.childNodes.length > 0) {
+      return part.childNodes.flatMap((c: any) => this.textPartNumbers(c, c.part ?? number));
+    }
+    if (type === 'text/plain' || type === 'text/html') {
+      const disposition = String(part.disposition ?? '').toLowerCase();
+      if (disposition === 'attachment') return [];
+      return [{ part: number || '1', type }];
+    }
+    return [];
+  }
+
+  private buildSnippet(text?: string, html?: string): string {
+    if (text) return this.normalizeSnippet(text);
+    if (html) return this.normalizeSnippet(this.htmlToText(html));
+    return '';
+  }
+
+  private normalizeSnippet(input: string): string {
+    return input
+      .replace(/\r/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 250);
+  }
+
+  private htmlToText(html: string): string {
+    return html
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'");
+  }
+
+  /** Walks the BODYSTRUCTURE and returns every non-textual / dispositioned part. */
+  private collectAttachments(part: any): AttachmentMeta[] {
+    if (!part) return [];
+    const out: AttachmentMeta[] = [];
+    const walk = (node: any) => {
+      if (!node) return;
+      if (Array.isArray(node.childNodes) && node.childNodes.length > 0) {
+        node.childNodes.forEach(walk);
+        return;
+      }
+      const type = String(node.type ?? '').toLowerCase();
+      const disposition = String(node.disposition ?? '').toLowerCase();
+      const filename =
+        node.dispositionParameters?.filename ||
+        node.parameters?.name ||
+        (node.id ? `inline-${String(node.id).replace(/[<>]/g, '')}` : '');
+      const isText = type === 'text/plain' || type === 'text/html';
+      const isAttachment = disposition === 'attachment' || (!!filename && !isText) || disposition === 'inline';
+      if (!isAttachment) return;
+      if (isText && disposition !== 'attachment') return;
+      out.push({
+        id: node.part ?? '1',
+        filename: filename || `part-${node.part ?? '1'}`,
+        contentType: type || 'application/octet-stream',
+        size: Number(node.size ?? 0),
+        contentId: node.id ? String(node.id).replace(/[<>]/g, '') : undefined,
+        inline: disposition === 'inline' || (!!node.id && disposition !== 'attachment'),
+      });
+    };
+    walk(part);
+    return out;
+  }
+
+  /** Prefers mailparser's decoded sizes/filenames where they line up by contentId. */
+  private mergeAttachments(structure: AttachmentMeta[], parsed: ParsedResult): AttachmentMeta[] {
+    if (structure.length === 0) return parsed.attachments;
+    return structure.map((s) => {
+      const match = parsed.attachments.find(
+        (p) => (s.contentId && p.contentId === s.contentId) || p.filename === s.filename,
+      );
+      return match ? { ...s, filename: match.filename || s.filename, size: match.size || s.size } : s;
+    });
+  }
+
+  private addr(a: any): MessageAddress {
     if (!a) return { address: '' };
+    if (typeof a.address === 'string' && a.address) {
+      return { name: a.name || undefined, address: a.address };
+    }
     return { name: a.name || undefined, address: `${a.mailbox ?? ''}@${a.host ?? ''}` };
   }
 
-  private async parseSource(_source: Buffer): Promise<{
-    text?: string;
-    html?: string;
-    headers: Record<string, string>;
-    attachments: Array<{ id: string; filename: string; contentType: string; size: number }>;
-  }> {
-    // NOTE: production build depends on `mailparser`. Kept as a stub here to
-    // keep the module tree light for scaffolding; wire `simpleParser` from
-    // `mailparser` in the real deployment to populate this fully.
-    return { headers: {}, attachments: [] };
+  /**
+   * Full MIME parse via mailparser. Inline (cid:) images are rewritten to data
+   * URIs so the UI can render embedded images without extra round trips.
+   */
+  private async parseSource(source: Buffer): Promise<ParsedResult> {
+    const empty: ParsedResult = { headers: {}, attachments: [] };
+    if (!source || source.length === 0) return empty;
+    let parsed: ParsedMail;
+    try {
+      parsed = await simpleParser(source, { skipImageLinks: false });
+    } catch (e) {
+      this.logger.warn(`MIME parse failed: ${(e as Error).message}`);
+      return empty;
+    }
+
+    const headers: Record<string, string> = {};
+    parsed.headerLines?.forEach((h) => {
+      const idx = h.line.indexOf(':');
+      if (idx > 0) headers[h.key] = h.line.slice(idx + 1).trim();
+    });
+
+    const attachments: AttachmentMeta[] = (parsed.attachments ?? []).map((a, i) => ({
+      id: String(i + 1),
+      filename: a.filename || `attachment-${i + 1}`,
+      contentType: a.contentType || 'application/octet-stream',
+      size: Number(a.size ?? a.content?.length ?? 0),
+      contentId: a.cid || undefined,
+      inline: a.contentDisposition === 'inline' || !!a.cid,
+    }));
+
+    let html = typeof parsed.html === 'string' ? parsed.html : undefined;
+    if (html) html = this.inlineCidImages(html, parsed);
+    const text = parsed.text || (html ? this.htmlToText(html) : undefined);
+
+    return {
+      headers,
+      attachments,
+      html,
+      text,
+      subject: parsed.subject ?? undefined,
+      date: parsed.date ?? undefined,
+    };
+  }
+
+  private inlineCidImages(html: string, parsed: ParsedMail): string {
+    const byCid = new Map<string, { contentType: string; content: Buffer }>();
+    for (const a of parsed.attachments ?? []) {
+      if (a.cid && a.content) {
+        byCid.set(a.cid.replace(/[<>]/g, '').toLowerCase(), {
+          contentType: a.contentType || 'application/octet-stream',
+          content: a.content as Buffer,
+        });
+      }
+    }
+    if (byCid.size === 0) return html;
+    return html.replace(/(["'(])cid:([^"')\s]+)/gi, (match, open: string, cid: string) => {
+      const found = byCid.get(cid.replace(/[<>]/g, '').toLowerCase());
+      if (!found) return match;
+      return `${open}data:${found.contentType};base64,${found.content.toString('base64')}`;
+    });
   }
 
   private buildRfc822(msg: OutgoingMessage, messageId: string): string {
@@ -317,4 +575,13 @@ export class MailService {
     ].filter(Boolean);
     return lines.join('\r\n');
   }
+}
+
+interface ParsedResult {
+  headers: Record<string, string>;
+  attachments: AttachmentMeta[];
+  html?: string;
+  text?: string;
+  subject?: string;
+  date?: Date;
 }

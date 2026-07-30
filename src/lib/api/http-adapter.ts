@@ -120,6 +120,15 @@ export function createHttpAdapter(baseUrl: string): MailClient {
       }),
     remove: (folder, uid) =>
       request<void>(`/mail/messages/${encodeURIComponent(folder)}/${uid}`, { method: "DELETE" }),
+    async downloadAttachment(folder, uid, part) {
+      const t = readTokens();
+      const url = `${baseUrl}/mail/messages/${encodeURIComponent(folder)}/${uid}/attachments/${encodeURIComponent(part)}`;
+      const res = await fetch(url, {
+        headers: t ? { authorization: `Bearer ${t.accessToken}` } : undefined,
+      });
+      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      return res.blob();
+    },
     send: (input: SendMessageInput) =>
       request<{ messageId: string }>("/mail/send", {
         method: "POST",

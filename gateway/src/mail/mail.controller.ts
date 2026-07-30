@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -33,6 +34,24 @@ export class MailController {
     @Param('uid', ParseIntPipe) uid: number,
   ) {
     return this.mail.getMessage(user.sessionId, folder, uid);
+  }
+
+  @Get('messages/:folder/:uid/attachments/:part')
+  async attachment(
+    @CurrentUser() user: AuthUser,
+    @Param('folder') folder: string,
+    @Param('uid', ParseIntPipe) uid: number,
+    @Param('part') part: string,
+    @Res() res: Response,
+  ) {
+    const file = await this.mail.downloadAttachment(user.sessionId, folder, uid, part);
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Length', String(file.content.length));
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${file.filename.replace(/[^\w.\- ]+/g, '_')}"`,
+    );
+    res.end(file.content);
   }
 
   @Patch('messages/:folder/:uid/flags')
