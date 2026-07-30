@@ -131,8 +131,10 @@ export class MailService {
       let matchedUids: number[] | null = null;
 
       if (q) {
-        const results = await conn.client.search({ text: q });
-        matchedUids = results.sort((a, b) => b - a);
+        const results = (await conn.client.search({ text: q }, { uid: true })) as number[] | false;
+        matchedUids = Array.isArray(results)
+          ? [...results].sort((a: number, b: number) => b - a)
+          : [];
       }
 
       let startUid: number;
