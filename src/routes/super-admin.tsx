@@ -53,14 +53,26 @@ function SuperAdminPage() {
   }, [session, navigate]);
   if (!session) return null;
 
+  const onboarded = loadProvisionedTenants().map((d) => ({
+    id: d.slug,
+    name: d.companyName,
+    hostname: d.hostname,
+    server: d.mailServerId,
+    plan: d.plan.charAt(0).toUpperCase() + d.plan.slice(1),
+    users: d.mailboxes.length,
+    status: "provisioning",
+  }));
+  const tenants = [...onboarded, ...TENANTS];
+
   return (
     <AppShell title="Platform Admin">
       <div className="mx-auto max-w-6xl p-6">
         <div className="mb-6 grid gap-4 sm:grid-cols-3">
-          <Stat icon={Building2} label="Tenants" value={TENANTS.length.toString()} />
+          <Stat icon={Building2} label="Tenants" value={tenants.length.toString()} />
           <Stat icon={Server} label="Mail servers" value={SERVERS.length.toString()} />
-          <Stat icon={Activity} label="Active users" value={TENANTS.reduce((a, t) => a + t.users, 0).toString()} />
+          <Stat icon={Activity} label="Active users" value={tenants.reduce((a, t) => a + t.users, 0).toString()} />
         </div>
+
 
         <Tabs defaultValue="tenants">
           <TabsList>
