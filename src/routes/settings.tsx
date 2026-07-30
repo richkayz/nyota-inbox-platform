@@ -44,7 +44,13 @@ function SettingsPage() {
   }, [session, navigate]);
 
   const [displayName, setDisplayName] = useState(session?.displayName ?? "");
-  const [signature, setSignature] = useState(`Best,\n${session?.displayName ?? ""}`);
+  const [signature, setSignature] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return (
+      window.localStorage.getItem("nyota.settings.signature") ??
+      `Best,\n${session?.displayName ?? ""}`
+    );
+  });
   const [autoSign, setAutoSign] = useState(true);
   const [twoFactor, setTwoFactor] = useState(false);
 
@@ -95,7 +101,14 @@ function SettingsPage() {
                 <Switch checked={autoSign} onCheckedChange={setAutoSign} id="autosign" />
                 <Label htmlFor="autosign" className="cursor-pointer">Auto-append signature</Label>
               </div>
-              <Button onClick={() => toast.success("Signature saved")}>Save signature</Button>
+              <Button
+                onClick={() => {
+                  window.localStorage.setItem("nyota.settings.signature", autoSign ? signature : "");
+                  toast.success("Signature saved");
+                }}
+              >
+                Save signature
+              </Button>
             </Section>
           </TabsContent>
 
