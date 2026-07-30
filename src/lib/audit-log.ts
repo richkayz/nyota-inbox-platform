@@ -9,7 +9,9 @@ export type AuditEventType =
   | "logout"
   | "session.expired"
   | "password.reset.requested"
-  | "password.reset.completed";
+  | "password.reset.completed"
+  | "password.change.success"
+  | "password.change.failure";
 
 export interface AuditEntry {
   id: string;
@@ -86,5 +88,8 @@ export function auditEventLabel(type: AuditEventType): string {
     case "session.expired": return "Session expired";
     case "password.reset.requested": return "Password reset requested";
     case "password.reset.completed": return "Password reset completed";
+    case "password.change.success": return "Password changed";
+    case "password.change.failure": return "Failed password change";
   }
+
 }

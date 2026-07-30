@@ -20,6 +20,9 @@ model User {
   tenantId      String   @db.VarChar(64)
   role          Role     @default(USER)
   lastLoginAt   DateTime?
+  /// Only ever set for the platform super-admin (no mailbox behind it):
+  /// scrypt$<salt>$<hash>. Mailbox users authenticate against Dovecot.
+  passwordHash  String?  @db.VarChar(255)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

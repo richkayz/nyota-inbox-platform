@@ -5,6 +5,8 @@ import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { ChangePlatformPasswordDto } from './dto/change-platform-password.dto';
+
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('auth')
@@ -23,6 +25,17 @@ export class AuthController {
   refresh(@Body() dto: RefreshDto, @Req() req: Request) {
     return this.auth.refresh(dto.refreshToken, ipOf(req), req.headers['user-agent']);
   }
+
+  /**
+   * On-screen password change for the platform super-admin. No session needed —
+   * the current password is the proof of ownership.
+   */
+  @Post('platform-admin/password')
+  @HttpCode(204)
+  async changePlatformPassword(@Body() dto: ChangePlatformPasswordDto) {
+    await this.auth.changePlatformAdminPassword(dto.email, dto.currentPassword, dto.newPassword);
+  }
+
 
   @Post('logout')
   @HttpCode(204)

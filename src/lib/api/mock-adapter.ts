@@ -140,6 +140,9 @@ export function createMockAdapter(): MailClient {
     async refresh(): Promise<AuthTokens> {
       return { accessToken: "mock", refreshToken: "mock", expiresIn: 900 };
     },
+    async changePlatformAdminPassword() {
+      await delay(300);
+    },
     async logout() {},
 
     async listFolders() {
