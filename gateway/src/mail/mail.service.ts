@@ -163,18 +163,27 @@ export class MailService {
         matchedUids = await this.searchUids(conn.client, q);
       }
 
+      // Highest existing UID — NOT `exists` (message count). They only
+      // coincide in a mailbox that has never had a deletion (typically INBOX);
+      // in Sent they diverge, which silently paged the wrong UID window.
+      const highestUid = Math.max(
+        1,
+        Number(mailbox.uidNext ?? 0) - 1 || Number(mailbox.exists ?? 1),
+      );
+
       let startUid: number;
       if (cursor) {
         const [cv, cUid] = cursor.split(':');
         if (cv !== validity) {
           // UIDVALIDITY changed — restart from newest.
-          startUid = mailbox.exists;
+          startUid = highestUid;
         } else {
           startUid = Math.max(1, Number(cUid));
         }
       } else {
-        startUid = mailbox.exists;
+        startUid = highestUid;
       }
+
 
       if (matchedUids) {
         const slice = matchedUids.filter((u) => u <= startUid).slice(0, limit);
