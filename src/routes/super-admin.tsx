@@ -99,7 +99,7 @@ function SuperAdminPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {TENANTS.map((t) => (
+                  {tenants.map((t) => (
                     <TableRow key={t.id}>
                       <TableCell className="font-medium">{t.name}</TableCell>
                       <TableCell className="font-mono text-xs">{t.hostname}</TableCell>
