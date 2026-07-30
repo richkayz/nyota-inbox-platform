@@ -33,7 +33,9 @@ import {
   Download,
   ArrowLeft,
   WifiOff,
+  ImageOff,
   Loader2,
+
 } from "lucide-react";
 import DOMPurify from "dompurify";
 import { useTenant } from "@/components/branding/BrandProvider";
@@ -149,17 +151,70 @@ function formatMailDate(iso: string): string {
   return d.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
 }
 
-/** Sanitizes remote email HTML and neutralises layout-breaking markup. */
-function sanitizeEmailHtml(html: string): string {
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Sanitizes remote email HTML, neutralises layout-breaking markup and (unless
+ * the reader opted in) defuses remote images so senders can't track opens.
+ * Inline `cid:`/`data:` images are always shown — they ship with the message.
+ */
+function sanitizeEmailHtml(html: string, allowRemoteImages: boolean): { html: string; blocked: number } {
   const clean = DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true },
     FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "link", "meta", "base"],
     FORBID_ATTR: ["srcdoc", "onerror", "onload", "background"],
     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|cid|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
   });
-  // Force links to open in a new tab.
-  return clean.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer nofollow" ');
+
+  const doc = new DOMParser().parseFromString(clean, "text/html");
+  let blocked = 0;
+  if (!allowRemoteImages) {
+    doc.querySelectorAll("img[src]").forEach((img) => {
+      const src = img.getAttribute("src") ?? "";
+      if (/^https?:/i.test(src)) {
+        img.setAttribute("data-blocked-src", src);
+        img.removeAttribute("src");
+        img.setAttribute("data-blocked", "true");
+        blocked += 1;
+      }
+    });
+  }
+  doc.querySelectorAll("a[href]").forEach((a) => {
+    a.setAttribute("target", "_blank");
+    a.setAttribute("rel", "noopener noreferrer nofollow");
+  });
+  return { html: doc.body.innerHTML, blocked };
 }
+
+/** Gmail-style quoted original for replies and forwards. */
+function buildQuotedHtml(
+  summary: MessageListItem,
+  detail: MessageDetail | undefined,
+  mode: "reply" | "forward",
+): string {
+  const when = new Date(summary.date).toLocaleString();
+  const who = `${escapeHtml(summary.from.name ?? summary.from.address)} &lt;${escapeHtml(summary.from.address)}&gt;`;
+  const rawHtml = detail?.bodyHtml ?? detail?.html;
+  const rawText = detail?.bodyText ?? detail?.text ?? summary.snippet ?? summary.preview ?? "";
+  const body = rawHtml
+    ? sanitizeEmailHtml(rawHtml, true).html
+    : escapeHtml(rawText).replace(/\n/g, "<br>");
+
+  if (mode === "forward") {
+    const to = (detail?.to ?? summary.to).map((r) => escapeHtml(r.address)).join(", ");
+    return (
+      `<br><br><div class="nyota-quote">` +
+      `<p>---------- Forwarded message ----------</p>` +
+      `<p>From: ${who}<br>Date: ${escapeHtml(when)}<br>` +
+      `Subject: ${escapeHtml(summary.subject || "(no subject)")}<br>To: ${to}</p>` +
+      `${body}</div>`
+    );
+  }
+  return `<br><br><div class="nyota-quote"><p>On ${escapeHtml(when)}, ${who} wrote:</p>${body}</div>`;
+}
+
 
 function MailShell() {
   const tenant = useTenant();
@@ -177,10 +232,14 @@ function MailShell() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [replyDefaults, setReplyDefaults] = useState<{
     to?: string;
+    cc?: string;
     subject?: string;
+    body?: string;
+    html?: string;
     inReplyTo?: string;
     references?: string[];
   } | null>(null);
+
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
@@ -326,6 +385,47 @@ function MailShell() {
     );
     if (activeUid === m.uid) setDetailOpen(false);
   }
+
+  /**
+   * Opens the composer pre-filled Gmail-style: correct recipients for
+   * reply / reply-all / forward, the original quoted below, and threading
+   * headers so the reply lands in the same conversation.
+   */
+  function startCompose(mode: "reply" | "replyAll" | "forward", body?: string) {
+    if (!active) return;
+    const detail = detailQ.data;
+    const self = (session?.email ?? "").toLowerCase();
+    const replyTo = detail?.replyTo?.[0]?.address ?? active.from.address;
+    const messageId = detail?.headers?.["message-id"] ?? detail?.headers?.["Message-ID"];
+    const priorRefs = (detail?.headers?.["references"] ?? detail?.headers?.["References"] ?? "")
+      .split(/\s+/)
+      .filter(Boolean);
+
+    if (mode === "forward") {
+      setReplyDefaults({
+        subject: /^fwd?:/i.test(active.subject) ? active.subject : `Fwd: ${active.subject}`,
+        html: buildQuotedHtml(active, detail, "forward"),
+      });
+    } else {
+      const everyone = [
+        ...(detail?.to ?? active.to),
+        ...(detail?.cc ?? []),
+      ]
+        .map((r) => r.address)
+        .filter((a) => a && a.toLowerCase() !== self && a.toLowerCase() !== replyTo.toLowerCase());
+      setReplyDefaults({
+        to: replyTo,
+        cc: mode === "replyAll" ? Array.from(new Set(everyone)).join(", ") : undefined,
+        subject: /^re:/i.test(active.subject) ? active.subject : `Re: ${active.subject}`,
+        body,
+        html: buildQuotedHtml(active, detail, "reply"),
+        inReplyTo: messageId,
+        references: messageId ? [...priorRefs, messageId] : priorRefs,
+      });
+    }
+    setComposerOpen(true);
+  }
+
 
   const initials = initialsOf(session?.displayName ?? "You");
   if (!session) return null;
@@ -645,19 +745,9 @@ function MailShell() {
               onArchive={() => archiveMessage(active)}
               onDelete={() => deleteMessage(active)}
               onSpam={() => spamMessage(active)}
-              onReply={() => {
-                setReplyDefaults({
-                  to: active.from.address,
-                  subject: /^re:/i.test(active.subject) ? active.subject : `Re: ${active.subject}`,
-                });
-                setComposerOpen(true);
-              }}
-              onForward={() => {
-                setReplyDefaults({
-                  subject: /^fwd?:/i.test(active.subject) ? active.subject : `Fwd: ${active.subject}`,
-                });
-                setComposerOpen(true);
-              }}
+              onReply={(body) => startCompose("reply", body)}
+              onReplyAll={() => startCompose("replyAll")}
+              onForward={() => startCompose("forward")}
             />
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-muted-foreground">
@@ -674,10 +764,14 @@ function MailShell() {
         open={composerOpen}
         onOpenChange={setComposerOpen}
         defaultTo={replyDefaults?.to}
+        defaultCc={replyDefaults?.cc}
         defaultSubject={replyDefaults?.subject}
+        defaultBody={replyDefaults?.body}
+        defaultHtml={replyDefaults?.html}
         inReplyTo={replyDefaults?.inReplyTo}
         references={replyDefaults?.references}
       />
+
 
       <ConfirmDialog
         open={logoutOpen}
@@ -799,7 +893,16 @@ function MessageRow({
     >
       {active && <span aria-hidden className="absolute inset-y-2 left-0 w-[3px] rounded-r bg-primary" />}
 
+      <span
+        aria-hidden
+        className={cn(
+          "mt-2 h-2 w-2 shrink-0 rounded-full",
+          message.unread ? "bg-primary" : "bg-transparent",
+        )}
+      />
+
       <Avatar className={cn("shrink-0", density === "comfortable" ? "h-10 w-10" : "h-8 w-8")}>
+
         <AvatarFallback
           className="text-[11px] font-semibold text-foreground/80"
           style={{ background: toneFor(party.address || name) }}
@@ -958,6 +1061,7 @@ function MessageDetailView({
   onDelete,
   onSpam,
   onReply,
+  onReplyAll,
   onForward,
 }: {
   summary: MessageListItem;
@@ -970,10 +1074,13 @@ function MessageDetailView({
   onArchive: () => void;
   onDelete: () => void;
   onSpam: () => void;
-  onReply: () => void;
+  onReply: (body?: string) => void;
+  onReplyAll: () => void;
   onForward: () => void;
 }) {
   const [showDetails, setShowDetails] = useState(false);
+  const [showImages, setShowImages] = useState(false);
+  const [showPlainText, setShowPlainText] = useState(false);
   const name = summary.from.name ?? summary.from.address;
   const initials = initialsOf(name);
   const attachments = (detail?.attachments ?? []).filter((a) => !a.inline);
@@ -983,7 +1090,19 @@ function MessageDetailView({
   const bcc = detail?.bcc ?? [];
   const recipients = detail?.to?.length ? detail.to : summary.to;
 
-  const safeHtml = useMemo(() => (html ? sanitizeEmailHtml(html) : null), [html]);
+  // Reset per-message reader preferences when a different message is opened.
+  useEffect(() => {
+    setShowImages(false);
+    setShowPlainText(false);
+    setShowDetails(false);
+  }, [summary.folder, summary.uid]);
+
+  const rendered = useMemo(
+    () => (html ? sanitizeEmailHtml(html, showImages) : null),
+    [html, showImages],
+  );
+  const safeHtml = showPlainText ? null : rendered?.html ?? null;
+
 
   async function downloadAttachment(part: string, filename: string) {
     try {
@@ -1006,13 +1125,14 @@ function MessageDetailView({
           <ArrowLeft className="h-4 w-4" />
         </button>
         <div className="flex flex-1 flex-wrap items-center gap-1">
-          <Button size="sm" onClick={onReply} className="gap-1.5">
+          <Button size="sm" onClick={() => onReply()} className="gap-1.5">
             <Reply className="h-3.5 w-3.5" /> Reply
           </Button>
-          <Button size="sm" variant="outline" onClick={onReply} className="gap-1.5">
+          <Button size="sm" variant="outline" onClick={onReplyAll} className="gap-1.5">
             <ReplyAll className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Reply all</span>
           </Button>
+
           <Button size="sm" variant="outline" onClick={onForward} className="gap-1.5">
             <Forward className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Forward</span>
@@ -1108,6 +1228,30 @@ function MessageDetailView({
             </div>
           </div>
 
+          {!loading && !error && html && (
+            <div className="mt-6 flex flex-wrap items-center gap-2">
+              {!showImages && (rendered?.blocked ?? 0) > 0 && (
+                <div className="flex flex-1 flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/50 px-3 py-2 text-xs">
+                  <ImageOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="text-muted-foreground">
+                    {rendered!.blocked} remote image{rendered!.blocked > 1 ? "s" : ""} blocked to protect your privacy.
+                  </span>
+                  <Button size="sm" variant="outline" className="ml-auto h-7" onClick={() => setShowImages(true)}>
+                    Display images
+                  </Button>
+                </div>
+              )}
+              {text && (
+                <button
+                  onClick={() => setShowPlainText((v) => !v)}
+                  className="rounded-full border border-border px-3 py-1 text-[11px] font-medium text-muted-foreground transition hover:border-primary hover:text-primary"
+                >
+                  {showPlainText ? "Show formatted message" : "Show plain text"}
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="mt-8 border-t border-border pt-8">
             {loading ? (
               <div className="space-y-2">
@@ -1135,6 +1279,7 @@ function MessageDetailView({
               <p className="text-sm italic text-muted-foreground">This message has no readable content.</p>
             )}
           </div>
+
 
           {attachments.length > 0 && (
             <div className="mt-10">
@@ -1178,14 +1323,15 @@ function MessageDetailView({
               {["Thanks!", "Sounds good.", "I'll get back to you."].map((t) => (
                 <button
                   key={t}
-                  onClick={onReply}
+                  onClick={() => onReply(t)}
                   className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground transition hover:border-primary hover:text-primary"
                 >
                   {t}
                 </button>
               ))}
               <div className="ml-auto flex gap-1">
-                <Button variant="outline" size="sm" onClick={onReply}>
+                <Button variant="outline" size="sm" onClick={() => onReply()}>
+
                   <Reply className="mr-1 h-3.5 w-3.5" /> Reply
                 </Button>
                 <Button variant="outline" size="sm" onClick={onForward}>
