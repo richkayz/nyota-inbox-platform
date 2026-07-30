@@ -34,7 +34,17 @@ export class SmtpService {
     if (!password) throw new Error('Session lost');
 
     const transporter: Transporter = createTransport({
-      ...smtpBaseOptions(),
+      ...smtpBaseOptions(
+        session.mailServer
+          ? {
+              host: session.mailServer.smtpHost,
+              port: session.mailServer.smtpPort,
+              secure: session.mailServer.smtpSecure,
+              servername: session.mailServer.smtpTlsServername,
+              rejectUnauthorized: session.mailServer.smtpRejectUnauthorized,
+            }
+          : null,
+      ),
       auth: { user: session.email, pass: password },
     });
 

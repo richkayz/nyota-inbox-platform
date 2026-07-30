@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import { decryptSecret, encryptSecret } from './crypto.util';
+import type { ResolvedMailServer } from '../tenants/tenant.service';
 
 /**
  * In-memory session store keyed by opaque sessionId.
@@ -13,6 +14,11 @@ export interface SessionRecord {
   email: string;
   tenantId: string;
   encryptedPassword: string;
+  /**
+   * Per-tenant IMAP/SMTP endpoint resolved at login. Null means "use the
+   * gateway-wide env configuration" (single-server deployments).
+   */
+  mailServer: ResolvedMailServer | null;
   createdAt: number;
   lastSeenAt: number;
 }
@@ -29,7 +35,13 @@ export class SessionStoreService {
     setInterval(() => this.sweep(), 5 * 60 * 1000).unref?.();
   }
 
-  create(input: { userId: string; email: string; tenantId: string; password: string }): SessionRecord {
+  create(input: {
+    userId: string;
+    email: string;
+    tenantId: string;
+    password: string;
+    mailServer?: ResolvedMailServer | null;
+  }): SessionRecord {
     const now = Date.now();
     const record: SessionRecord = {
       sessionId: uuid(),
@@ -37,6 +49,7 @@ export class SessionStoreService {
       email: input.email,
       tenantId: input.tenantId,
       encryptedPassword: encryptSecret(input.password),
+      mailServer: input.mailServer ?? null,
       createdAt: now,
       lastSeenAt: now,
     };
