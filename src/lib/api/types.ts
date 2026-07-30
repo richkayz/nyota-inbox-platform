@@ -28,6 +28,7 @@ export interface MessageListItem {
   to: MessageAddress[];
   subject: string;
   preview: string;
+  snippet?: string;
   date: string;
   unread: boolean;
   starred: boolean;
@@ -35,11 +36,26 @@ export interface MessageListItem {
   threadId?: string;
 }
 
+export interface MessageAttachment {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  contentId?: string;
+  inline?: boolean;
+}
+
 export interface MessageDetail extends MessageListItem {
+  cc?: MessageAddress[];
+  bcc?: MessageAddress[];
+  replyTo?: MessageAddress[];
   bodyText?: string;
   bodyHtml?: string;
+  /** Gateway aliases for bodyText / bodyHtml. */
+  text?: string;
+  html?: string;
   headers: Record<string, string>;
-  attachments: Array<{ id: string; filename: string; contentType: string; size: number }>;
+  attachments: MessageAttachment[];
 }
 
 export interface Page<T> {
@@ -121,6 +137,7 @@ export interface MailClient {
   move(folder: string, uid: number, target: string): Promise<void>;
   remove(folder: string, uid: number): Promise<void>;
   send(input: SendMessageInput): Promise<{ messageId: string }>;
+  downloadAttachment(folder: string, uid: number, part: string): Promise<Blob>;
 
   listContacts(input: { cursor?: string | null; limit?: number; q?: string }): Promise<Page<Contact>>;
   upsertContact(input: { email: string; name?: string; starred?: boolean }): Promise<Contact>;

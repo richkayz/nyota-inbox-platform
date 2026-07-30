@@ -35,6 +35,7 @@ import {
   WifiOff,
   Loader2,
 } from "lucide-react";
+import DOMPurify from "dompurify";
 import { useTenant } from "@/components/branding/BrandProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { clearSession, getSession, getSessionStatus } from "@/lib/mock-auth";
@@ -134,12 +135,30 @@ function initialsOf(name: string) {
 
 function formatMailDate(iso: string): string {
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
   const now = new Date();
   if (d.toDateString() === now.toDateString())
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
   const diffDays = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
   if (diffDays < 7) return d.toLocaleDateString([], { weekday: "short" });
-  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  if (d.getFullYear() === now.getFullYear())
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  return d.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+}
+
+/** Sanitizes remote email HTML and neutralises layout-breaking markup. */
+function sanitizeEmailHtml(html: string): string {
+  const clean = DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true },
+    FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "link", "meta", "base"],
+    FORBID_ATTR: ["srcdoc", "onerror", "onload", "background"],
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|cid|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+  });
+  // Force links to open in a new tab.
+  return clean.replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer nofollow" ');
 }
 
 function MailShell() {
@@ -233,6 +252,14 @@ function MailShell() {
   const messages: MessageListItem[] = useMemo(
     () => messagesQ.data?.pages.flatMap((p) => p.items) ?? [],
     [messagesQ.data],
+  );
+
+  const showRecipients = useMemo(
+    () => ["sent", "drafts"].includes(activeFolder.toLowerCase()) ||
+      ["sent", "drafts"].includes(
+        (foldersQ.data?.find((f) => f.path === activeFolder)?.role ?? "").toLowerCase(),
+      ),
+    [activeFolder, foldersQ.data],
   );
 
   const active = useMemo(
@@ -506,7 +533,7 @@ function MailShell() {
         {/* Message list */}
         <section
           className={cn(
-            "flex w-full min-w-0 flex-col border-r border-border bg-surface md:w-[380px] md:shrink-0",
+            "flex w-full min-w-0 flex-col border-r border-border bg-surface md:w-[400px] md:shrink-0 lg:w-[440px]",
             detailOpen && "hidden md:flex",
           )}
         >
@@ -568,6 +595,7 @@ function MailShell() {
                     message={m}
                     active={active?.uid === m.uid}
                     density={density}
+                    showRecipients={showRecipients}
                     onClick={() => openMessage(m)}
                     onToggleStar={() => toggleStar(m)}
                     onArchive={() => archiveMessage(m)}
@@ -729,6 +757,7 @@ function MessageRow({
   message,
   active,
   density,
+  showRecipients,
   onClick,
   onToggleStar,
   onArchive,
@@ -737,13 +766,19 @@ function MessageRow({
   message: MessageListItem;
   active: boolean;
   density: "comfortable" | "compact";
+  showRecipients?: boolean;
   onClick: () => void;
   onToggleStar: () => void;
   onArchive: () => void;
   onDelete: () => void;
 }) {
-  const name = message.from.name ?? message.from.address;
+  const party = showRecipients
+    ? message.to[0] ?? message.from
+    : message.from;
+  const name = party.name ?? party.address ?? "(unknown)";
+  const extra = showRecipients && message.to.length > 1 ? ` +${message.to.length - 1}` : "";
   const initials = initialsOf(name);
+  const snippet = message.snippet ?? message.preview ?? "";
 
   return (
     <div
@@ -757,65 +792,73 @@ function MessageRow({
         }
       }}
       className={cn(
-        "group relative flex w-full cursor-pointer gap-3 border-b border-border/60 px-4 text-left transition-colors",
-        density === "comfortable" ? "py-3" : "py-2",
-        active ? "bg-primary/[0.06]" : "hover:bg-muted/50",
+        "group relative flex w-full cursor-pointer gap-3 border-b border-border/50 pl-4 pr-3 text-left transition-colors",
+        density === "comfortable" ? "py-3.5" : "py-2.5",
+        active ? "bg-primary/[0.07]" : message.unread ? "bg-primary/[0.02] hover:bg-muted/60" : "hover:bg-muted/50",
       )}
     >
-      {active && <span aria-hidden className="absolute inset-y-1.5 left-0 w-0.5 rounded-r bg-primary" />}
+      {active && <span aria-hidden className="absolute inset-y-2 left-0 w-[3px] rounded-r bg-primary" />}
 
-      {density === "comfortable" && (
-        <Avatar className="h-9 w-9 shrink-0">
-          <AvatarFallback
-            className="text-[11px] font-semibold text-foreground/80"
-            style={{ background: toneFor(message.from.address) }}
-          >
-            {initials}
-          </AvatarFallback>
-        </Avatar>
-      )}
+      <Avatar className={cn("shrink-0", density === "comfortable" ? "h-10 w-10" : "h-8 w-8")}>
+        <AvatarFallback
+          className="text-[11px] font-semibold text-foreground/80"
+          style={{ background: toneFor(party.address || name) }}
+        >
+          {initials}
+        </AvatarFallback>
+      </Avatar>
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2">
-            {message.unread && (
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-label="Unread" />
+        <div className="flex items-center justify-between gap-3">
+          <span
+            className={cn(
+              "truncate text-[13.5px]",
+              message.unread ? "font-bold text-foreground" : "font-medium text-foreground/75",
             )}
-            <span
-              className={cn(
-                "truncate text-sm",
-                message.unread ? "font-semibold text-foreground" : "text-foreground/80",
-              )}
-            >
-              {name}
-            </span>
-          </div>
-          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+          >
+            {showRecipients ? "To: " : ""}
+            {name}
+            {extra}
+          </span>
+          <span
+            className={cn(
+              "shrink-0 text-[11px] tabular-nums",
+              message.unread ? "font-semibold text-primary" : "text-muted-foreground",
+            )}
+          >
             {formatMailDate(message.date)}
           </span>
         </div>
-        <div
-          className={cn(
-            "mt-0.5 truncate text-sm",
-            message.unread ? "font-medium text-foreground" : "text-muted-foreground",
-          )}
-        >
-          {message.subject || "(no subject)"}
-        </div>
-        {density === "comfortable" && (
-          <div className="mt-0.5 flex items-center gap-2">
-            <p className="truncate text-xs text-muted-foreground">{message.preview}</p>
-            {message.hasAttachment && (
-              <Paperclip className="h-3 w-3 shrink-0 text-muted-foreground" />
+
+        <div className="mt-1 flex items-center gap-2">
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-[13.5px]",
+              message.unread ? "font-semibold text-foreground" : "text-foreground/70",
             )}
-          </div>
+          >
+            {message.subject || "(no subject)"}
+          </span>
+          {message.hasAttachment && (
+            <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Has attachments" />
+          )}
+          {message.starred && (
+            <Star className="h-3.5 w-3.5 shrink-0 fill-accent text-accent" aria-label="Starred" />
+          )}
+        </div>
+
+        {density === "comfortable" && (
+          <p className="mt-1 line-clamp-2 text-[12.5px] leading-[1.55] text-muted-foreground">
+            {snippet || "No preview available"}
+          </p>
         )}
       </div>
 
-      <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-lg border border-border bg-card px-1 py-1 opacity-0 shadow-sm transition group-hover:opacity-100 group-focus-within:opacity-100">
+      <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-lg border border-border bg-card px-1 py-1 opacity-0 shadow-md transition group-hover:opacity-100 group-focus-within:opacity-100">
         <button
           onClick={(e) => { e.stopPropagation(); onToggleStar(); }}
           aria-label={message.starred ? "Unstar" : "Star"}
+          title={message.starred ? "Unstar" : "Star"}
           className="icon-btn h-7 w-7"
         >
           <Star className={cn("h-3.5 w-3.5", message.starred && "fill-accent text-accent")} />
@@ -823,6 +866,7 @@ function MessageRow({
         <button
           onClick={(e) => { e.stopPropagation(); onArchive(); }}
           aria-label="Archive"
+          title="Archive"
           className="icon-btn h-7 w-7"
         >
           <Archive className="h-3.5 w-3.5" />
@@ -830,21 +874,15 @@ function MessageRow({
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
           aria-label="Delete"
-          className="icon-btn h-7 w-7"
+          title="Delete"
+          className="icon-btn h-7 w-7 hover:text-destructive"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
-
-      {message.starred && (
-        <span className="pointer-events-none absolute right-3 top-3 opacity-100 group-hover:opacity-0">
-          <Star className="h-3.5 w-3.5 fill-accent text-accent" />
-        </span>
-      )}
     </div>
   );
 }
-
 function MessageListSkeleton({ density }: { density: "comfortable" | "compact" }) {
   return (
     <div>
@@ -935,40 +973,51 @@ function MessageDetailView({
   onReply: () => void;
   onForward: () => void;
 }) {
+  const [showDetails, setShowDetails] = useState(false);
   const name = summary.from.name ?? summary.from.address;
   const initials = initialsOf(name);
-  const attachments = detail?.attachments ?? [];
+  const attachments = (detail?.attachments ?? []).filter((a) => !a.inline);
+  const html = detail?.bodyHtml ?? detail?.html;
+  const text = detail?.bodyText ?? detail?.text;
+  const cc = detail?.cc ?? [];
+  const bcc = detail?.bcc ?? [];
+  const recipients = detail?.to?.length ? detail.to : summary.to;
+
+  const safeHtml = useMemo(() => (html ? sanitizeEmailHtml(html) : null), [html]);
+
+  async function downloadAttachment(part: string, filename: string) {
+    try {
+      const blob = await mailClient.downloadAttachment(summary.folder, summary.uid, part);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error("Download failed", { description: (e as Error).message });
+    }
+  }
 
   return (
     <>
-      <div className="flex items-center gap-1 border-b border-border px-3 py-2 md:px-6">
+      <div className="sticky top-0 z-10 flex items-center gap-1 border-b border-border bg-card/95 px-3 py-2 backdrop-blur md:px-8">
         <button onClick={onBack} className="icon-btn md:hidden" aria-label="Back to inbox">
           <ArrowLeft className="h-4 w-4" />
         </button>
         <div className="flex flex-1 flex-wrap items-center gap-1">
-          <div className="inline-flex overflow-hidden rounded-lg border border-border bg-card shadow-xs">
-            <button
-              onClick={onReply}
-              className="flex items-center gap-1.5 border-r border-border px-3 py-1.5 text-sm font-medium text-foreground transition hover:bg-muted"
-            >
-              <Reply className="h-3.5 w-3.5" /> Reply
-            </button>
-            <button
-              onClick={onReply}
-              className="flex items-center gap-1.5 border-r border-border px-3 py-1.5 text-sm font-medium text-foreground transition hover:bg-muted"
-              aria-label="Reply all"
-              title="Reply all"
-            >
-              <ReplyAll className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={onForward}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-foreground transition hover:bg-muted"
-            >
-              <Forward className="h-3.5 w-3.5" /> Forward
-            </button>
-          </div>
-          <div className="ml-1 flex items-center gap-0.5">
+          <Button size="sm" onClick={onReply} className="gap-1.5">
+            <Reply className="h-3.5 w-3.5" /> Reply
+          </Button>
+          <Button size="sm" variant="outline" onClick={onReply} className="gap-1.5">
+            <ReplyAll className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Reply all</span>
+          </Button>
+          <Button size="sm" variant="outline" onClick={onForward} className="gap-1.5">
+            <Forward className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Forward</span>
+          </Button>
+          <div className="ml-auto flex items-center gap-0.5">
             <button onClick={onToggleStar} className="icon-btn h-8 w-8" aria-label={summary.starred ? "Unstar" : "Star"}>
               <Star className={cn("h-4 w-4", summary.starred && "fill-accent text-accent")} />
             </button>
@@ -988,7 +1037,7 @@ function MessageDetailView({
                 <DropdownMenuItem onClick={onSpam}>
                   <ShieldAlert className="h-4 w-4" /> Mark as spam
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => toast("Print — pending")}>
+                <DropdownMenuItem onClick={() => window.print()}>
                   <Printer className="h-4 w-4" /> Print
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -998,13 +1047,13 @@ function MessageDetailView({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-5 py-8 md:px-10 md:py-10">
-          <h1 className="text-2xl font-semibold leading-tight tracking-tight md:text-[28px]">
+        <div className="mx-auto max-w-5xl px-5 py-8 md:px-12 md:py-10">
+          <h1 className="text-[22px] font-semibold leading-snug tracking-tight md:text-[28px]">
             {summary.subject || "(no subject)"}
           </h1>
 
-          <div className="mt-6 flex items-start gap-3">
-            <Avatar className="h-10 w-10">
+          <div className="mt-7 flex items-start gap-4">
+            <Avatar className="h-11 w-11 shrink-0">
               <AvatarFallback
                 className="text-sm font-semibold text-foreground/80"
                 style={{ background: toneFor(summary.from.address) }}
@@ -1017,9 +1066,37 @@ function MessageDetailView({
                 <span className="truncate text-sm font-semibold">{name}</span>
                 <span className="truncate text-xs text-muted-foreground">&lt;{summary.from.address}&gt;</span>
               </div>
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                to {summary.to.map((r) => r.name ?? r.address).join(", ")}
-              </div>
+              <button
+                onClick={() => setShowDetails((v) => !v)}
+                className="mt-1 flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground"
+              >
+                <span className="truncate">
+                  to {recipients.map((r) => r.name ?? r.address).join(", ") || "—"}
+                </span>
+                <ChevronDown className={cn("h-3 w-3 transition", showDetails && "rotate-180")} />
+              </button>
+              {showDetails && (
+                <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 rounded-xl border border-border bg-muted/40 p-3 text-xs">
+                  <dt className="font-medium text-muted-foreground">From</dt>
+                  <dd className="truncate">{summary.from.address}</dd>
+                  <dt className="font-medium text-muted-foreground">To</dt>
+                  <dd className="break-words">{recipients.map((r) => r.address).join(", ") || "—"}</dd>
+                  {cc.length > 0 && (
+                    <>
+                      <dt className="font-medium text-muted-foreground">Cc</dt>
+                      <dd className="break-words">{cc.map((r) => r.address).join(", ")}</dd>
+                    </>
+                  )}
+                  {bcc.length > 0 && (
+                    <>
+                      <dt className="font-medium text-muted-foreground">Bcc</dt>
+                      <dd className="break-words">{bcc.map((r) => r.address).join(", ")}</dd>
+                    </>
+                  )}
+                  <dt className="font-medium text-muted-foreground">Date</dt>
+                  <dd>{new Date(summary.date).toLocaleString()}</dd>
+                </dl>
+              )}
             </div>
             <div className="shrink-0 text-right text-xs text-muted-foreground">
               {new Date(summary.date).toLocaleString([], {
@@ -1031,7 +1108,7 @@ function MessageDetailView({
             </div>
           </div>
 
-          <div className="mt-8">
+          <div className="mt-8 border-t border-border pt-8">
             {loading ? (
               <div className="space-y-2">
                 <Skeleton className="h-4 w-full" />
@@ -1041,16 +1118,21 @@ function MessageDetailView({
               </div>
             ) : error ? (
               <ErrorState title="Couldn't load message" message={error} onRetry={onRetry} />
-            ) : detail?.bodyHtml ? (
+            ) : safeHtml ? (
               <article
-                className="prose prose-sm max-w-none text-[15px] leading-[1.7] text-foreground/90 dark:prose-invert"
-                // The gateway is expected to sanitize HTML before returning.
-                dangerouslySetInnerHTML={{ __html: detail.bodyHtml }}
+                className="email-body text-[15px] leading-[1.75] text-foreground/90"
+                dangerouslySetInnerHTML={{ __html: safeHtml }}
               />
-            ) : (
-              <article className="whitespace-pre-wrap text-[15px] leading-[1.7] text-foreground/90">
-                {detail?.bodyText ?? summary.preview}
+            ) : text ? (
+              <article className="whitespace-pre-wrap break-words font-sans text-[15px] leading-[1.75] text-foreground/90">
+                {text}
               </article>
+            ) : summary.snippet || summary.preview ? (
+              <article className="whitespace-pre-wrap text-[15px] leading-[1.75] text-foreground/90">
+                {summary.snippet ?? summary.preview}
+              </article>
+            ) : (
+              <p className="text-sm italic text-muted-foreground">This message has no readable content.</p>
             )}
           </div>
 
@@ -1066,7 +1148,7 @@ function MessageDetailView({
                     className="group flex items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-sm transition hover:shadow-md"
                   >
                     <div
-                      className="flex h-11 w-11 items-center justify-center rounded-lg text-primary"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-primary"
                       style={{ background: "oklch(from var(--primary) calc(l + 0.4) c h / 0.15)" }}
                     >
                       <Paperclip className="h-5 w-5" />
@@ -1078,9 +1160,9 @@ function MessageDetailView({
                       </div>
                     </div>
                     <button
-                      onClick={() => toast("Download — coming soon")}
-                      className="icon-btn h-8 w-8 opacity-0 transition group-hover:opacity-100"
-                      aria-label="Download"
+                      onClick={() => downloadAttachment(att.id, att.filename)}
+                      className="icon-btn h-8 w-8"
+                      aria-label={`Download ${att.filename}`}
                     >
                       <Download className="h-3.5 w-3.5" />
                     </button>
@@ -1117,7 +1199,6 @@ function MessageDetailView({
     </>
   );
 }
-
 function formatBytes(n: number) {
   if (!Number.isFinite(n) || n <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
