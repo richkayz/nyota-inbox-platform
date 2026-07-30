@@ -86,9 +86,59 @@ export class AuthService {
     return tokens;
   }
 
+  /**
+   * Password change for the platform admin, callable from the sign-in screen.
+   * Requires the current password, so it is safe without a session; the new
+   * hash is persisted on the user row and takes precedence over the env hash.
+   */
+  async changePlatformAdminPassword(email: string, currentPassword: string, newPassword: string): Promise<void> {
+    if (!isPlatformAdminEmail(email)) {
+      throw new UnauthorizedException('Not a platform admin account');
+    }
+    const cfg = platformAdminConfig()!;
+    const stored = await this.resolvePlatformAdminHash(cfg);
+    if (!verifyPlatformAdminPassword(currentPassword, stored)) {
+      await this.audit.record({ tenantId: 'platform', type: 'password.change.failure', email: cfg.email });
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+    const passwordHash = hashPlatformAdminPassword(newPassword);
+    await this.prisma.user.upsert({
+      where: { email: cfg.email },
+      update: { passwordHash, role: 'SUPER_ADMIN', tenantId: 'platform' },
+      create: {
+        email: cfg.email,
+        tenantId: 'platform',
+        displayName: 'Platform Admin',
+        role: 'SUPER_ADMIN',
+        passwordHash,
+      },
+    });
+    // Any existing refresh tokens are invalidated after a password change.
+    const user = await this.prisma.user.findUnique({ where: { email: cfg.email } });
+    if (user) {
+      await this.prisma.refreshToken.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    }
+    await this.audit.record({
+      userId: user?.id,
+      tenantId: 'platform',
+      type: 'password.change.success',
+      email: cfg.email,
+    });
+  }
+
+  /** DB hash wins over the env hash once the admin has changed it on screen. */
+  private async resolvePlatformAdminHash(cfg: { email: string; passwordHash: string }): Promise<string> {
+    const row = await this.prisma.user.findUnique({ where: { email: cfg.email } });
+    return row?.passwordHash?.trim() || cfg.passwordHash;
+  }
+
   private async loginPlatformAdmin(dto: LoginDto, ip?: string, userAgent?: string): Promise<TokenPair> {
     const cfg = platformAdminConfig()!;
-    if (!verifyPlatformAdminPassword(dto.password, cfg.passwordHash)) {
+    const stored = await this.resolvePlatformAdminHash(cfg);
+    if (!verifyPlatformAdminPassword(dto.password, stored)) {
       await this.audit.record({
         tenantId: 'platform',
         type: 'login.failure',
@@ -98,6 +148,7 @@ export class AuthService {
       });
       throw new UnauthorizedException('Invalid credentials');
     }
+
 
     const user = await this.prisma.user.upsert({
       where: { email: cfg.email },
