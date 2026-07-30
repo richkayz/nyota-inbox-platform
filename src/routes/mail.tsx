@@ -1114,13 +1114,14 @@ function MessageDetailView({
           <ArrowLeft className="h-4 w-4" />
         </button>
         <div className="flex flex-1 flex-wrap items-center gap-1">
-          <Button size="sm" onClick={onReply} className="gap-1.5">
+          <Button size="sm" onClick={() => onReply()} className="gap-1.5">
             <Reply className="h-3.5 w-3.5" /> Reply
           </Button>
-          <Button size="sm" variant="outline" onClick={onReply} className="gap-1.5">
+          <Button size="sm" variant="outline" onClick={onReplyAll} className="gap-1.5">
             <ReplyAll className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Reply all</span>
           </Button>
+
           <Button size="sm" variant="outline" onClick={onForward} className="gap-1.5">
             <Forward className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Forward</span>
