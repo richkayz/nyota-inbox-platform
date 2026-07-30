@@ -145,6 +145,11 @@ export function createHttpAdapter(baseUrl: string): MailClient {
       request<Contact>("/contacts", { method: "POST", body: JSON.stringify(input) }),
     removeContact: (id) =>
       request<void>(`/contacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    listAudit: ({ cursor, limit = 100 }) => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (cursor) params.set("cursor", cursor);
+      return request<Page<AuditRecord>>(`/audit?${params.toString()}`);
+    },
     async diagnostics(): Promise<Diagnostics> {
       const started = Date.now();
       const data = await request<Omit<Diagnostics, "mode"> & { mode?: "live" }>("/health/diagnostics");
