@@ -1312,14 +1312,15 @@ function MessageDetailView({
               {["Thanks!", "Sounds good.", "I'll get back to you."].map((t) => (
                 <button
                   key={t}
-                  onClick={onReply}
+                  onClick={() => onReply(t)}
                   className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-foreground transition hover:border-primary hover:text-primary"
                 >
                   {t}
                 </button>
               ))}
               <div className="ml-auto flex gap-1">
-                <Button variant="outline" size="sm" onClick={onReply}>
+                <Button variant="outline" size="sm" onClick={() => onReply()}>
+
                   <Reply className="mr-1 h-3.5 w-3.5" /> Reply
                 </Button>
                 <Button variant="outline" size="sm" onClick={onForward}>
