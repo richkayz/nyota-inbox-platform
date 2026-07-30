@@ -646,7 +646,22 @@ export class MailService {
     });
   }
 
+  /** Finds the mailbox flagged \Sent, falling back to common Plesk paths. */
+  private async resolveSentPath(client: any): Promise<string> {
+    try {
+      const list = await client.list();
+      const special = list.find((f: any) => f.specialUse === '\\Sent');
+      if (special?.path) return special.path;
+      const named = list.find((f: any) => /(^|[./])sent(\s?items)?$/i.test(f.path));
+      if (named?.path) return named.path;
+    } catch {
+      /* fall through to the conventional path */
+    }
+    return 'INBOX.Sent';
+  }
+
   private buildRfc822(msg: OutgoingMessage, messageId: string): string {
+    const body = msg.html ?? msg.text ?? '';
     const lines: string[] = [
       `Message-ID: ${messageId}`,
       `From: ${msg.from}`,
@@ -656,11 +671,15 @@ export class MailService {
       `Date: ${new Date().toUTCString()}`,
       `MIME-Version: 1.0`,
       msg.html ? `Content-Type: text/html; charset=utf-8` : `Content-Type: text/plain; charset=utf-8`,
+      `Content-Transfer-Encoding: base64`,
       '',
-      msg.html ?? msg.text ?? '',
+      // Base64 keeps the appended copy valid for any body (UTF-8, long lines,
+      // raw HTML) so the reading pane can always decode it back.
+      (Buffer.from(body, 'utf8').toString('base64').match(/.{1,76}/g) ?? []).join('\r\n'),
     ].filter(Boolean);
     return lines.join('\r\n');
   }
+
 }
 
 interface ParsedResult {
