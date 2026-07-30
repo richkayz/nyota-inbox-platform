@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Mail, Lock, ArrowRight, Loader2, Moon, Sun } from "lucide-react";
 import { useTenant } from "@/components/branding/BrandProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
-import { consumeExpiredFlag, setSession } from "@/lib/mock-auth";
+import { consumeExpiredFlag, setSession, type Session } from "@/lib/mock-auth";
 import { recordAuditEvent } from "@/lib/audit-log";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { mailClient } from "@/lib/api/client";
+import type { AuthTokens } from "@/lib/api/types";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (search: Record<string, unknown>) => ({
