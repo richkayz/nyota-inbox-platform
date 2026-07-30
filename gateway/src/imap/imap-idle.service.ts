@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, Inject, forwardRef } from '@nestjs
 import { ImapFlow } from 'imapflow';
 import { SessionStoreService } from '../auth/session-store.service';
 import { SseService } from '../sse/sse.service';
+import { imapBaseOptions } from './imap-options';
 
 interface Watcher {
   client: ImapFlow;
@@ -33,9 +34,7 @@ export class ImapIdleService implements OnModuleDestroy {
     if (!password) return;
 
     const client = new ImapFlow({
-      host: process.env.IMAP_HOST ?? '127.0.0.1',
-      port: Number(process.env.IMAP_PORT ?? 993),
-      secure: (process.env.IMAP_SECURE ?? 'true') === 'true',
+      ...imapBaseOptions(),
       auth: { user: session.email, pass: password },
       logger: false,
       emitLogs: false,
