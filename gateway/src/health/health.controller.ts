@@ -177,10 +177,7 @@ export class HealthController {
     const smtpAuth = await timed(async () => {
       if (!password) throw new Error('Session has no cached password');
       const transporter = createTransport({
-        host: process.env.SMTP_HOST ?? '127.0.0.1',
-        port: Number(process.env.SMTP_PORT ?? 587),
-        secure: (process.env.SMTP_SECURE ?? 'false') === 'true',
-        requireTLS: (process.env.SMTP_REQUIRE_TLS ?? 'true') === 'true',
+        ...smtpBaseOptions(),
         auth: { user: user.email, pass: password },
         connectionTimeout: 4000,
       });
@@ -254,10 +251,7 @@ export class HealthController {
     return timed(async () => {
       if (!password) throw new Error('Session has no cached password');
       const transporter = createTransport({
-        host: process.env.SMTP_HOST ?? '127.0.0.1',
-        port: Number(process.env.SMTP_PORT ?? 587),
-        secure: (process.env.SMTP_SECURE ?? 'false') === 'true',
-        requireTLS: (process.env.SMTP_REQUIRE_TLS ?? 'true') === 'true',
+        ...smtpBaseOptions(),
         auth: { user: user.email, pass: password },
         connectionTimeout: 4000,
       });
