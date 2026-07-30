@@ -196,5 +196,28 @@ export function useRemoveContact() {
   });
 }
 
+// ------- admin -------
+
+export function useAuditLogInfinite(enabled = true) {
+  return useInfiniteQuery({
+    queryKey: ["audit"] as const,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => mailClient.listAudit({ cursor: pageParam, limit: 100 }),
+    getNextPageParam: (last) => last.nextCursor,
+    staleTime: 15_000,
+    enabled,
+  });
+}
+
+export function useDiagnostics(enabled = true) {
+  return useQuery({
+    queryKey: ["diagnostics"] as const,
+    queryFn: () => mailClient.diagnostics(),
+    staleTime: 30_000,
+    enabled,
+  });
+}
+
 // re-export folder type for convenience
 export type { FolderSummary };
+
