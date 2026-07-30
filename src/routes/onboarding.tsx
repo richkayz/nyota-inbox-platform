@@ -141,7 +141,7 @@ function OnboardingPage() {
             </h2>
             <p className="mb-5 text-sm text-muted-foreground">{current.blurb}</p>
 
-            {step === 1 && <CompanyStep draft={draft} patch={patch} />}
+            {step === 1 && <CompanyStep draft={draft} patch={patch} setDraft={setDraft} />}
             {step === 2 && <BrandingStep draft={draft} patch={patch} />}
             {step === 3 && <DomainStep draft={draft} patch={patch} />}
             {step === 4 && <MailboxStep draft={draft} patch={patch} />}
@@ -203,9 +203,13 @@ function OnboardingPage() {
   );
 }
 
-type StepProps = { draft: OnboardingDraft; patch: (p: Partial<OnboardingDraft>) => void };
+type StepProps = {
+  draft: OnboardingDraft;
+  patch: (p: Partial<OnboardingDraft>) => void;
+  setDraft: React.Dispatch<React.SetStateAction<OnboardingDraft>>;
+};
 
-function CompanyStep({ draft, patch }: StepProps) {
+function CompanyStep({ draft, patch, setDraft }: StepProps) {
   return (
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -217,11 +221,12 @@ function CompanyStep({ draft, patch }: StepProps) {
             placeholder="Acme Corp"
             onChange={(e) => {
               const companyName = e.target.value;
-              patch({
+              setDraft((d) => ({
+                ...d,
                 companyName,
                 slug: slugify(companyName),
-                welcomeMessage: draft.welcomeMessage || `Sign in to ${companyName} Mail.`,
-              });
+                welcomeMessage: d.welcomeEdited ? d.welcomeMessage : companyName ? `Sign in to ${companyName} Mail.` : "",
+              }));
             }}
           />
         </div>
@@ -292,7 +297,7 @@ function CompanyStep({ draft, patch }: StepProps) {
   );
 }
 
-function BrandingStep({ draft, patch }: StepProps) {
+function BrandingStep({ draft, patch }: Omit<StepProps, "setDraft">) {
   const brand = brandPreview(draft);
   return (
     <div className="grid gap-6 lg:grid-cols-2">
@@ -303,7 +308,7 @@ function BrandingStep({ draft, patch }: StepProps) {
         </div>
         <div className="space-y-2">
           <Label htmlFor="welcome">Sign-in welcome message</Label>
-          <Textarea id="welcome" rows={3} value={draft.welcomeMessage} onChange={(e) => patch({ welcomeMessage: e.target.value })} />
+          <Textarea id="welcome" rows={3} value={draft.welcomeMessage} onChange={(e) => patch({ welcomeMessage: e.target.value, welcomeEdited: true })} />
         </div>
         <div className="space-y-3">
           <Label>Primary colour</Label>
@@ -339,7 +344,7 @@ function BrandingStep({ draft, patch }: StepProps) {
   );
 }
 
-function DomainStep({ draft, patch }: StepProps) {
+function DomainStep({ draft, patch }: Omit<StepProps, "setDraft">) {
   const [verifying, setVerifying] = useState(false);
   const records = dnsRecordsFor(draft);
 
@@ -434,7 +439,7 @@ function DomainStep({ draft, patch }: StepProps) {
   );
 }
 
-function MailboxStep({ draft, patch }: StepProps) {
+function MailboxStep({ draft, patch }: Omit<StepProps, "setDraft">) {
   const [localPart, setLocalPart] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState<"company_admin" | "user">(

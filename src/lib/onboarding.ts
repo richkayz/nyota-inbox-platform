@@ -29,6 +29,8 @@ export interface OnboardingDraft {
   domainVerified: boolean;
   /** True once the operator edits the hostname by hand, disabling auto-derivation. */
   hostnameEdited: boolean;
+  /** True once the operator edits the welcome copy by hand. */
+  welcomeEdited: boolean;
   mailServerId: string;
   // Mailboxes
   mailboxes: OnboardingMailbox[];
@@ -74,6 +76,7 @@ export function emptyDraft(): OnboardingDraft {
     hostname: "",
     domainVerified: false,
     hostnameEdited: false,
+    welcomeEdited: false,
     mailServerId: MAIL_SERVERS[0].id,
     mailboxes: [],
   };
