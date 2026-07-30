@@ -83,6 +83,20 @@ export interface Contact {
   createdAt?: string;
 }
 
+export interface AuditRecord {
+  id: string;
+  type: string;
+  email?: string | null;
+  userId?: string | null;
+  ip?: string | null;
+  userAgent?: string | null;
+  meta?: Record<string, unknown> | null;
+  hash?: string | null;
+  prevHash?: string | null;
+  createdAt: string;
+}
+
+
 export type SseEvent =
   | { type: "mail.new"; folder: string; count: number }
   | { type: "mail.expunge"; folder: string; seq: number }
