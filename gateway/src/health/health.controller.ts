@@ -9,6 +9,7 @@ import { SmtpService } from '../smtp/smtp.service';
 import { SessionStoreService } from '../auth/session-store.service';
 import { smtpBaseOptions } from '../smtp/smtp-options';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
+import { imapBaseOptions } from '../imap/imap-options';
 
 const VERSION = process.env.npm_package_version ?? '0.1.0';
 
@@ -151,9 +152,7 @@ export class HealthController {
     const imapAuth = await timed(async () => {
       if (!password) throw new Error('Session has no cached password');
       const client = new ImapFlow({
-        host: process.env.IMAP_HOST ?? '127.0.0.1',
-        port: Number(process.env.IMAP_PORT ?? 993),
-        secure: (process.env.IMAP_SECURE ?? 'true') === 'true',
+        ...imapBaseOptions(),
         auth: { user: user.email, pass: password },
         logger: false,
         emitLogs: false,
@@ -227,9 +226,7 @@ export class HealthController {
     return timed(async () => {
       if (!password) throw new Error('Session has no cached password');
       const client = new ImapFlow({
-        host: process.env.IMAP_HOST ?? '127.0.0.1',
-        port: Number(process.env.IMAP_PORT ?? 993),
-        secure: (process.env.IMAP_SECURE ?? 'true') === 'true',
+        ...imapBaseOptions(),
         auth: { user: user.email, pass: password },
         logger: false,
         emitLogs: false,

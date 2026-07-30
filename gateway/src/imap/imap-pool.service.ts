@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ImapFlow } from 'imapflow';
 import { SessionStoreService } from '../auth/session-store.service';
+import { imapBaseOptions } from './imap-options';
 
 interface PooledConnection {
   client: ImapFlow;
@@ -122,9 +123,7 @@ export class ImapPoolService implements OnModuleDestroy {
 
   private buildClient(email: string, password: string): ImapFlow {
     return new ImapFlow({
-      host: process.env.IMAP_HOST ?? '127.0.0.1',
-      port: Number(process.env.IMAP_PORT ?? 993),
-      secure: (process.env.IMAP_SECURE ?? 'true') === 'true',
+      ...imapBaseOptions(),
       auth: { user: email, pass: password },
       logger: false,
       emitLogs: false,
