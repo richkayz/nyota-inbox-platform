@@ -272,6 +272,12 @@ export class MailService {
           if (body.trim()) {
             if (/<\/?(html|body|div|p|table|br)/i.test(body)) html = body;
             else text = body;
+          } else {
+            // Recover Sent copies produced by gateway versions that omitted the
+            // mandatory blank line between the MIME headers and base64 body.
+            const recovered = this.recoverLegacySentBody(raw);
+            if (recovered?.type === 'text/html') html = recovered.body;
+            if (recovered?.type === 'text/plain') text = recovered.body;
           }
         }
       }
@@ -662,7 +668,7 @@ export class MailService {
 
   private buildRfc822(msg: OutgoingMessage, messageId: string): string {
     const body = msg.html ?? msg.text ?? '';
-    const lines: string[] = [
+    const headers: string[] = [
       `Message-ID: ${messageId}`,
       `From: ${msg.from}`,
       `To: ${msg.to.join(', ')}`,
@@ -672,12 +678,26 @@ export class MailService {
       `MIME-Version: 1.0`,
       msg.html ? `Content-Type: text/html; charset=utf-8` : `Content-Type: text/plain; charset=utf-8`,
       `Content-Transfer-Encoding: base64`,
-      '',
-      // Base64 keeps the appended copy valid for any body (UTF-8, long lines,
-      // raw HTML) so the reading pane can always decode it back.
-      (Buffer.from(body, 'utf8').toString('base64').match(/.{1,76}/g) ?? []).join('\r\n'),
     ].filter(Boolean);
-    return lines.join('\r\n');
+    const encodedBody = (Buffer.from(body, 'utf8').toString('base64').match(/.{1,76}/g) ?? []).join('\r\n');
+
+    // RFC 5322 requires an empty line between the header block and body. Do
+    // not include this separator in the filtered header array: filter(Boolean)
+    // previously removed it and caused Dovecot to save a header-only message.
+    return `${headers.join('\r\n')}\r\n\r\n${encodedBody}\r\n`;
+  }
+
+  private recoverLegacySentBody(source: string): { type: 'text/html' | 'text/plain'; body: string } | null {
+    const match = source.match(/Content-Transfer-Encoding:\s*base64\s*\r?\n([A-Za-z0-9+/=\r\n]+)\s*$/i);
+    if (!match?.[1]) return null;
+    try {
+      const body = Buffer.from(match[1].replace(/\s+/g, ''), 'base64').toString('utf8').trim();
+      if (!body) return null;
+      const contentType = source.match(/Content-Type:\s*(text\/(?:html|plain))/i)?.[1]?.toLowerCase();
+      return { type: contentType === 'text/html' ? 'text/html' : 'text/plain', body };
+    } catch {
+      return null;
+    }
   }
 
 }
