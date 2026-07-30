@@ -259,7 +259,12 @@ function CompanyStep({ draft, patch }: StepProps) {
               patch({ plan, licensedMailboxes: Math.min(draft.licensedMailboxes || PLAN_LIMITS[plan], PLAN_LIMITS[plan]) });
             }}
           >
-            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectTrigger>
+              <SelectValue placeholder="Choose a plan">
+                {draft.plan.charAt(0).toUpperCase() + draft.plan.slice(1)} — up to {PLAN_LIMITS[draft.plan]} mailboxes
+              </SelectValue>
+            </SelectTrigger>
+
             <SelectContent>
               <SelectItem value="starter">Starter — up to {PLAN_LIMITS.starter} mailboxes</SelectItem>
               <SelectItem value="business">Business — up to {PLAN_LIMITS.business} mailboxes</SelectItem>
