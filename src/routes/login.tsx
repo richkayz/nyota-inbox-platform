@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { mailClient } from "@/lib/api/client";
 import type { AuthTokens } from "@/lib/api/types";
+import { PlatformPasswordResetDialog } from "@/components/auth/PlatformPasswordResetDialog";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -43,6 +44,7 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
 
   useEffect(() => {
     const expired = search.reason === "expired" ? {} : consumeExpiredFlag();
@@ -239,6 +241,18 @@ function LoginPage() {
           .
         </p>
       </div>
+
+      <PlatformPasswordResetDialog
+        open={resetOpen}
+        onOpenChange={setResetOpen}
+        tenantId={tenant.id}
+        defaultEmail={email}
+        supportEmail={tenant.supportEmail}
+        onChanged={(addr, next) => {
+          setEmail(addr);
+          setPassword(next);
+        }}
+      />
     </main>
   );
 }

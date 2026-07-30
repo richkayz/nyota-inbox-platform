@@ -9,7 +9,9 @@ export type AuditEventType =
   | "logout"
   | "session.expired"
   | "password.reset.requested"
-  | "password.reset.completed";
+  | "password.reset.completed"
+  | "password.change.success"
+  | "password.change.failure";
 
 export interface AuditEntry {
   id: string;
