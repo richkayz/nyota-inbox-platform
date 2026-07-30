@@ -308,6 +308,12 @@ export function createMockAdapter(): MailClient {
       if (i >= 0) store.contacts.splice(i, 1);
     },
 
+    async listAudit() {
+      await delay(80);
+      return { items: [], nextCursor: null };
+    },
+
+
     async diagnostics() {
       await delay(120);
       const now = new Date().toISOString();

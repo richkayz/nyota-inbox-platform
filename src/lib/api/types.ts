@@ -83,6 +83,20 @@ export interface Contact {
   createdAt?: string;
 }
 
+export interface AuditRecord {
+  id: string;
+  type: string;
+  email?: string | null;
+  userId?: string | null;
+  ip?: string | null;
+  userAgent?: string | null;
+  meta?: Record<string, unknown> | null;
+  hash?: string | null;
+  prevHash?: string | null;
+  createdAt: string;
+}
+
+
 export type SseEvent =
   | { type: "mail.new"; folder: string; count: number }
   | { type: "mail.expunge"; folder: string; seq: number }
@@ -142,6 +156,9 @@ export interface MailClient {
   listContacts(input: { cursor?: string | null; limit?: number; q?: string }): Promise<Page<Contact>>;
   upsertContact(input: { email: string; name?: string; starred?: boolean }): Promise<Contact>;
   removeContact(id: string): Promise<void>;
+
+  listAudit(input: { cursor?: string | null; limit?: number }): Promise<Page<AuditRecord>>;
+
 
   diagnostics(): Promise<Diagnostics>;
   testImap(): Promise<HealthCheck>;
