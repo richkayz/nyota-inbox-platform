@@ -230,10 +230,14 @@ function MailShell() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [replyDefaults, setReplyDefaults] = useState<{
     to?: string;
+    cc?: string;
     subject?: string;
+    body?: string;
+    html?: string;
     inReplyTo?: string;
     references?: string[];
   } | null>(null);
+
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
