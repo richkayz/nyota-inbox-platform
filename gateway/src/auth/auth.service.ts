@@ -7,7 +7,12 @@ import { ImapPoolService } from '../imap/imap-pool.service';
 import { AuditService } from '../audit/audit.service';
 import { sha256 } from './crypto.util';
 import type { LoginDto } from './dto/login.dto';
-import { isPlatformAdminEmail, platformAdminConfig, verifyPlatformAdminPassword } from './platform-admin';
+import {
+  hashPlatformAdminPassword,
+  isPlatformAdminEmail,
+  platformAdminConfig,
+  verifyPlatformAdminPassword,
+} from './platform-admin';
 
 export interface TokenPair {
   accessToken: string;
