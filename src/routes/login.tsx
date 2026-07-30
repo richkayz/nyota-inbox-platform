@@ -59,12 +59,21 @@ function LoginPage() {
   }, []);
 
 
+  function roleFromTokens(role: AuthTokens["role"], addr: string): Session["role"] {
+    if (role === "SUPER_ADMIN") return "super_admin";
+    if (role === "COMPANY_ADMIN") return "company_admin";
+    if (role === "USER") return "user";
+    // Mock mode fallback: no gateway role available.
+    return addr.startsWith("admin") ? "company_admin" : "user";
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!email || !password) return;
     setLoading(true);
+    let tokens: Awaited<ReturnType<typeof mailClient.login>> | undefined;
     try {
-      await mailClient.login(email, password, tenant.id);
+      tokens = await mailClient.login(email, password, tenant.id);
     } catch (err) {
       setLoading(false);
       toast.error("Sign in failed", { description: (err as Error).message || "Check your credentials and try again." });
@@ -75,7 +84,7 @@ function LoginPage() {
       {
         email,
         displayName: email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-        role: email.startsWith("admin") ? "company_admin" : "user",
+        role: roleFromTokens(tokens?.role, email),
         tenantId: tenant.id,
       },
       { remember },
@@ -87,6 +96,11 @@ function LoginPage() {
       meta: { remember },
     });
     toast.success(`Welcome back to ${tenant.name}`);
+    if (tokens?.role === "SUPER_ADMIN") {
+      // The platform admin has no mailbox — land on the console, not the inbox.
+      navigate({ to: "/super-admin" });
+      return;
+    }
     if (isSafeRedirect(search.redirect)) {
       // Preserve pathname + query string + hash by pushing the raw href.
       router.history.push(search.redirect);

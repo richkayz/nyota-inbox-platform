@@ -5,6 +5,11 @@ export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  /** Gateway-authoritative role; absent in mock mode. */
+  role?: "USER" | "COMPANY_ADMIN" | "SUPER_ADMIN";
+  email?: string;
+  /** False for the platform admin identity, which owns no mailbox. */
+  hasMailbox?: boolean;
 }
 
 export interface FolderSummary {
