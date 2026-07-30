@@ -1050,6 +1050,7 @@ function MessageDetailView({
   onDelete,
   onSpam,
   onReply,
+  onReplyAll,
   onForward,
 }: {
   summary: MessageListItem;
@@ -1062,10 +1063,13 @@ function MessageDetailView({
   onArchive: () => void;
   onDelete: () => void;
   onSpam: () => void;
-  onReply: () => void;
+  onReply: (body?: string) => void;
+  onReplyAll: () => void;
   onForward: () => void;
 }) {
   const [showDetails, setShowDetails] = useState(false);
+  const [showImages, setShowImages] = useState(false);
+  const [showPlainText, setShowPlainText] = useState(false);
   const name = summary.from.name ?? summary.from.address;
   const initials = initialsOf(name);
   const attachments = (detail?.attachments ?? []).filter((a) => !a.inline);
@@ -1075,7 +1079,19 @@ function MessageDetailView({
   const bcc = detail?.bcc ?? [];
   const recipients = detail?.to?.length ? detail.to : summary.to;
 
-  const safeHtml = useMemo(() => (html ? sanitizeEmailHtml(html) : null), [html]);
+  // Reset per-message reader preferences when a different message is opened.
+  useEffect(() => {
+    setShowImages(false);
+    setShowPlainText(false);
+    setShowDetails(false);
+  }, [summary.folder, summary.uid]);
+
+  const rendered = useMemo(
+    () => (html ? sanitizeEmailHtml(html, showImages) : null),
+    [html, showImages],
+  );
+  const safeHtml = showPlainText ? null : rendered?.html ?? null;
+
 
   async function downloadAttachment(part: string, filename: string) {
     try {
