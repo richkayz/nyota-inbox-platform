@@ -1217,6 +1217,30 @@ function MessageDetailView({
             </div>
           </div>
 
+          {!loading && !error && html && (
+            <div className="mt-6 flex flex-wrap items-center gap-2">
+              {!showImages && (rendered?.blocked ?? 0) > 0 && (
+                <div className="flex flex-1 flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/50 px-3 py-2 text-xs">
+                  <ImageOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="text-muted-foreground">
+                    {rendered!.blocked} remote image{rendered!.blocked > 1 ? "s" : ""} blocked to protect your privacy.
+                  </span>
+                  <Button size="sm" variant="outline" className="ml-auto h-7" onClick={() => setShowImages(true)}>
+                    Display images
+                  </Button>
+                </div>
+              )}
+              {text && (
+                <button
+                  onClick={() => setShowPlainText((v) => !v)}
+                  className="rounded-full border border-border px-3 py-1 text-[11px] font-medium text-muted-foreground transition hover:border-primary hover:text-primary"
+                >
+                  {showPlainText ? "Show formatted message" : "Show plain text"}
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="mt-8 border-t border-border pt-8">
             {loading ? (
               <div className="space-y-2">
@@ -1244,6 +1268,7 @@ function MessageDetailView({
               <p className="text-sm italic text-muted-foreground">This message has no readable content.</p>
             )}
           </div>
+
 
           {attachments.length > 0 && (
             <div className="mt-10">
