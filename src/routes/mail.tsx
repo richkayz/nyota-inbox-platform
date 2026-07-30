@@ -893,7 +893,16 @@ function MessageRow({
     >
       {active && <span aria-hidden className="absolute inset-y-2 left-0 w-[3px] rounded-r bg-primary" />}
 
+      <span
+        aria-hidden
+        className={cn(
+          "mt-2 h-2 w-2 shrink-0 rounded-full",
+          message.unread ? "bg-primary" : "bg-transparent",
+        )}
+      />
+
       <Avatar className={cn("shrink-0", density === "comfortable" ? "h-10 w-10" : "h-8 w-8")}>
+
         <AvatarFallback
           className="text-[11px] font-semibold text-foreground/80"
           style={{ background: toneFor(party.address || name) }}
