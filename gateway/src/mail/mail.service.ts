@@ -380,11 +380,10 @@ export class MailService {
       const conn = await this.pool.acquire(sessionId).catch(() => null);
       if (conn) {
         try {
-          const raw = this.buildRfc822(msg, res.messageId);
           // Dovecot/Plesk namespaces Sent as "INBOX.Sent" — resolve the real
           // path instead of guessing, or the copy never lands in Sent.
           const sentPath = await this.resolveSentPath(conn.client);
-          await conn.client.append(sentPath, raw, ['\\Seen']);
+          await conn.client.append(sentPath, res.raw, ['\\Seen']);
         } catch (e) {
           this.logger.warn(`Append-to-Sent failed: ${(e as Error).message}`);
         } finally {
@@ -393,7 +392,7 @@ export class MailService {
       }
     }
 
-    return res;
+    return { messageId: res.messageId };
   }
 
   private async fetchEnvelopes(client: any, folder: string, uidRange: string): Promise<MessageListItem[]> {
@@ -664,27 +663,6 @@ export class MailService {
       /* fall through to the conventional path */
     }
     return 'INBOX.Sent';
-  }
-
-  private buildRfc822(msg: OutgoingMessage, messageId: string): string {
-    const body = msg.html ?? msg.text ?? '';
-    const headers: string[] = [
-      `Message-ID: ${messageId}`,
-      `From: ${msg.from}`,
-      `To: ${msg.to.join(', ')}`,
-      msg.cc?.length ? `Cc: ${msg.cc.join(', ')}` : '',
-      `Subject: ${msg.subject}`,
-      `Date: ${new Date().toUTCString()}`,
-      `MIME-Version: 1.0`,
-      msg.html ? `Content-Type: text/html; charset=utf-8` : `Content-Type: text/plain; charset=utf-8`,
-      `Content-Transfer-Encoding: base64`,
-    ].filter(Boolean);
-    const encodedBody = (Buffer.from(body, 'utf8').toString('base64').match(/.{1,76}/g) ?? []).join('\r\n');
-
-    // RFC 5322 requires an empty line between the header block and body. Do
-    // not include this separator in the filtered header array: filter(Boolean)
-    // previously removed it and caused Dovecot to save a header-only message.
-    return `${headers.join('\r\n')}\r\n\r\n${encodedBody}\r\n`;
   }
 
   private recoverLegacySentBody(source: string): { type: 'text/html' | 'text/plain'; body: string } | null {
