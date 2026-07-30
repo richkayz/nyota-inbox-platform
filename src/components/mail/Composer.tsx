@@ -444,6 +444,12 @@ export function Composer({
               "compose-editor overflow-y-auto px-5 py-4 text-sm leading-relaxed outline-none",
               expanded ? "min-h-[440px] max-h-[55vh]" : "min-h-[260px] max-h-[40vh]",
             )}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
             onPaste={(e) => {
               const files = Array.from(e.clipboardData.files ?? []);
               if (files.some((f) => f.type.startsWith("image/"))) {
@@ -451,6 +457,7 @@ export function Composer({
                 insertImages(files);
               }
             }}
+
           />
           {dragging && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-primary/5 text-sm font-medium text-primary">
