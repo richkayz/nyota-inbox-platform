@@ -178,12 +178,13 @@ function LoginPage() {
                       type: "password.reset.requested",
                       email: email || undefined,
                     });
-                    toast("Password reset — coming soon");
+                    setResetOpen(true);
                   }}
                 >
                   Forgot?
                 </button>
               </div>
+
               <div className="relative">
                 <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
