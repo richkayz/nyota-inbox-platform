@@ -3,6 +3,7 @@ import { ImapFlow } from 'imapflow';
 import { SessionStoreService } from '../auth/session-store.service';
 import { SseService } from '../sse/sse.service';
 import { imapBaseOptions } from './imap-options';
+import { toImapOverrides } from './imap-pool.service';
 
 interface Watcher {
   client: ImapFlow;
@@ -34,7 +35,7 @@ export class ImapIdleService implements OnModuleDestroy {
     if (!password) return;
 
     const client = new ImapFlow({
-      ...imapBaseOptions(),
+      ...imapBaseOptions(toImapOverrides(session.mailServer)),
       auth: { user: session.email, pass: password },
       logger: false,
       emitLogs: false,

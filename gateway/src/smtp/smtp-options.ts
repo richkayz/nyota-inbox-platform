@@ -17,17 +17,31 @@ export interface SmtpBaseOptions {
   tls: { servername?: string; rejectUnauthorized: boolean };
 }
 
-export function smtpBaseOptions(): SmtpBaseOptions {
-  const host = process.env.SMTP_HOST ?? '127.0.0.1';
-  const servername = process.env.SMTP_TLS_SERVERNAME?.trim() || undefined;
+export interface SmtpOverrides {
+  host?: string;
+  port?: number;
+  secure?: boolean;
+  servername?: string;
+  rejectUnauthorized?: boolean;
+}
+
+/**
+ * A tenant bound to a MailServer row overrides the env defaults, so one gateway
+ * can relay through several Postfix hosts.
+ */
+export function smtpBaseOptions(overrides?: SmtpOverrides | null): SmtpBaseOptions {
+  const host = overrides?.host ?? process.env.SMTP_HOST ?? '127.0.0.1';
+  const servername = overrides?.servername ?? (process.env.SMTP_TLS_SERVERNAME?.trim() || undefined);
   return {
     host,
-    port: Number(process.env.SMTP_PORT ?? 587),
-    secure: (process.env.SMTP_SECURE ?? 'false') === 'true',
+    port: overrides?.port ?? Number(process.env.SMTP_PORT ?? 587),
+    secure: overrides?.secure ?? (process.env.SMTP_SECURE ?? 'false') === 'true',
     requireTLS: (process.env.SMTP_REQUIRE_TLS ?? 'true') === 'true',
     tls: {
       servername,
-      rejectUnauthorized: (process.env.SMTP_TLS_REJECT_UNAUTHORIZED ?? 'true') === 'true',
+      rejectUnauthorized:
+        overrides?.rejectUnauthorized ??
+        (process.env.SMTP_TLS_REJECT_UNAUTHORIZED ?? 'true') === 'true',
     },
   };
 }

@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SessionStoreService } from './session-store.service';
 import { ImapPoolService } from '../imap/imap-pool.service';
 import { AuditService } from '../audit/audit.service';
+import { TenantService, PLATFORM_TENANT_ID } from '../tenants/tenant.service';
 import { sha256 } from './crypto.util';
 import type { LoginDto } from './dto/login.dto';
 import {
@@ -35,20 +36,39 @@ export class AuthService {
     private readonly sessions: SessionStoreService,
     private readonly pool: ImapPoolService,
     private readonly audit: AuditService,
+    private readonly tenants: TenantService,
   ) {}
 
-  async login(dto: LoginDto, ip?: string, userAgent?: string): Promise<TokenPair> {
+  async login(dto: LoginDto, ip?: string, userAgent?: string, host?: string): Promise<TokenPair> {
     // Platform super-admin: authenticated against the configured scrypt hash,
     // never against Dovecot (this identity owns no mailbox).
     if (isPlatformAdminEmail(dto.email)) {
+      await this.tenants.ensurePlatformTenant();
       return this.loginPlatformAdmin(dto, ip, userAgent);
     }
 
-    // 1. Verify the mailbox credentials against Dovecot with a short IMAP handshake.
-    const ok = await this.pool.verifyCredentials(dto.email, dto.password);
+    // 1. Resolve which tenant this login belongs to. The request host wins over
+    //    the client-supplied tenantId, which is only a hint; a mailbox domain
+    //    that is not allowed on this host is rejected before touching Dovecot.
+    const tenant = await this.tenants.resolveForLogin(dto.email, host);
+    if (tenant.status === 'suspended') {
+      await this.audit.record({
+        tenantId: tenant.id,
+        type: 'login.blocked',
+        email: dto.email,
+        ip,
+        userAgent,
+        meta: { reason: 'tenant_suspended' },
+      });
+      throw new UnauthorizedException('This workspace is suspended. Contact your administrator.');
+    }
+    const mailServer = await this.tenants.mailServerFor(tenant.id);
+
+    // 2. Verify the mailbox credentials against that tenant's Dovecot host.
+    const ok = await this.pool.verifyCredentials(dto.email, dto.password, mailServer);
     if (!ok) {
       await this.audit.record({
-        tenantId: dto.tenantId ?? 'unknown',
+        tenantId: tenant.id,
         type: 'login.failure',
         email: dto.email,
         ip,
@@ -57,8 +77,21 @@ export class AuthService {
       throw new UnauthorizedException('Invalid mailbox credentials');
     }
 
-    // 2. Upsert the user metadata row (no password stored).
-    const tenantId = dto.tenantId ?? this.tenantFromEmail(dto.email);
+    // 3. Upsert the user metadata row (no password stored). Mailbox licensing:
+    //    a brand-new mailbox is refused once the tenant is at its limit.
+    const tenantId = tenant.id;
+    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (!existing && !(await this.tenants.hasMailboxCapacity(tenantId))) {
+      await this.audit.record({
+        tenantId,
+        type: 'login.blocked',
+        email: dto.email,
+        ip,
+        userAgent,
+        meta: { reason: 'mailbox_limit' },
+      });
+      throw new UnauthorizedException('Mailbox limit reached for this workspace.');
+    }
     const user = await this.prisma.user.upsert({
       where: { email: dto.email },
       update: { lastLoginAt: new Date(), tenantId },
@@ -71,6 +104,7 @@ export class AuthService {
       email: user.email,
       tenantId: user.tenantId,
       password: dto.password,
+      mailServer,
     });
 
     // 4. Prime the IMAP pool.
@@ -103,16 +137,16 @@ export class AuthService {
     const cfg = platformAdminConfig()!;
     const stored = await this.resolvePlatformAdminHash(cfg);
     if (!verifyPlatformAdminPassword(currentPassword, stored)) {
-      await this.audit.record({ tenantId: 'platform', type: 'password.change.failure', email: cfg.email });
+      await this.audit.record({ tenantId: PLATFORM_TENANT_ID, type: 'password.change.failure', email: cfg.email });
       throw new UnauthorizedException('Current password is incorrect');
     }
     const passwordHash = hashPlatformAdminPassword(newPassword);
     await this.prisma.user.upsert({
       where: { email: cfg.email },
-      update: { passwordHash, role: 'SUPER_ADMIN', tenantId: 'platform' },
+      update: { passwordHash, role: 'SUPER_ADMIN', tenantId: PLATFORM_TENANT_ID },
       create: {
         email: cfg.email,
-        tenantId: 'platform',
+        tenantId: PLATFORM_TENANT_ID,
         displayName: 'Platform Admin',
         role: 'SUPER_ADMIN',
         passwordHash,
@@ -128,7 +162,7 @@ export class AuthService {
     }
     await this.audit.record({
       userId: user?.id,
-      tenantId: 'platform',
+      tenantId: PLATFORM_TENANT_ID,
       type: 'password.change.success',
       email: cfg.email,
     });
@@ -145,7 +179,7 @@ export class AuthService {
     const stored = await this.resolvePlatformAdminHash(cfg);
     if (!verifyPlatformAdminPassword(dto.password, stored)) {
       await this.audit.record({
-        tenantId: 'platform',
+        tenantId: PLATFORM_TENANT_ID,
         type: 'login.failure',
         email: cfg.email,
         ip,
@@ -157,10 +191,10 @@ export class AuthService {
 
     const user = await this.prisma.user.upsert({
       where: { email: cfg.email },
-      update: { role: 'SUPER_ADMIN', tenantId: 'platform', lastLoginAt: new Date() },
+      update: { role: 'SUPER_ADMIN', tenantId: PLATFORM_TENANT_ID, lastLoginAt: new Date() },
       create: {
         email: cfg.email,
-        tenantId: 'platform',
+        tenantId: PLATFORM_TENANT_ID,
         displayName: 'Platform Admin',
         role: 'SUPER_ADMIN',
         lastLoginAt: new Date(),

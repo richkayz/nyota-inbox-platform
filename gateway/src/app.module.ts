@@ -15,6 +15,8 @@ import { SettingsModule } from './settings/settings.module';
 import { AuditModule } from './audit/audit.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { HealthModule } from './health/health.module';
+import { TenantModule } from './tenants/tenant.module';
+import { AdminModule } from './super-admin/admin.module';
 
 @Module({
   imports: [
@@ -26,6 +28,7 @@ import { HealthModule } from './health/health.module';
       },
     ]),
     PrismaModule,
+    TenantModule,
     SessionModule,
     AuthModule,
     ImapModule,
@@ -36,6 +39,7 @@ import { HealthModule } from './health/health.module';
     SettingsModule,
     AuditModule,
     HealthModule,
+    AdminModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

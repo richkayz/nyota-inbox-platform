@@ -63,6 +63,8 @@ model RefreshToken {
 model Contact {
   id        String   @id @default(uuid())
   userId    String
+  /// Denormalized tenant guard column (defense in depth — MariaDB has no RLS).
+  tenantId  String?  @db.VarChar(64)
   email     String   @db.VarChar(320)
   name      String?  @db.VarChar(255)
   starred   Boolean  @default(false)
@@ -78,6 +80,8 @@ model Contact {
 model Signature {
   id        String   @id @default(uuid())
   userId    String
+  /// Denormalized tenant guard column (defense in depth — MariaDB has no RLS).
+  tenantId  String?  @db.VarChar(64)
   name      String   @db.VarChar(128)
   html      String   @db.Text
   isDefault Boolean  @default(false)
@@ -115,6 +119,8 @@ model NotificationSetting {
 model FolderCache {
   id             String   @id @default(uuid())
   userId         String
+  /// Denormalized tenant guard column (defense in depth — MariaDB has no RLS).
+  tenantId  String?  @db.VarChar(64)
   path           String   @db.VarChar(255)   // IMAP folder path e.g. "INBOX/Archive"
   name           String   @db.VarChar(255)
   role           String?  @db.VarChar(32)    // inbox|sent|drafts|spam|trash|archive|null
@@ -149,4 +155,72 @@ model AuditLog {
 
   @@index([tenantId, createdAt])
   @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Multi-tenancy (Phase 1) — tenants are first-class rows, not free strings.
+// `Tenant.id` IS the tenant slug so existing `User.tenantId` / `AuditLog.tenantId`
+// values keep resolving without a destructive migration. No FK is declared on
+// those legacy columns on purpose: rows created before this migration may point
+// at a tenant that is auto-provisioned on first login instead.
+// ---------------------------------------------------------------------------
+
+/// A physical Plesk / Postfix / Dovecot host that serves one or more tenants.
+model MailServer {
+  id                    String   @id @default(uuid())
+  name                  String   @unique @db.VarChar(64)
+  hostname              String   @db.VarChar(255)
+  region                String?  @db.VarChar(64)
+  imapHost              String   @db.VarChar(255)
+  imapPort              Int      @default(993)
+  imapSecure            Boolean  @default(true)
+  imapTlsServername     String?  @db.VarChar(255)
+  imapRejectUnauthorized Boolean @default(true)
+  smtpHost              String   @db.VarChar(255)
+  smtpPort              Int      @default(587)
+  smtpSecure            Boolean  @default(false)
+  smtpTlsServername     String?  @db.VarChar(255)
+  smtpRejectUnauthorized Boolean @default(true)
+  status                String   @default("healthy") @db.VarChar(32) // healthy|degraded|offline
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  tenants Tenant[]
+}
+
+model Tenant {
+  /// Slug — also the value stored in User.tenantId / AuditLog.tenantId.
+  id              String   @id @db.VarChar(64)
+  name            String   @db.VarChar(160)
+  /// Canonical UI host, e.g. inbox.company.com
+  primaryHostname String   @unique @db.VarChar(255)
+  /// Comma-separated mailbox domains allowed to sign in on this tenant.
+  allowedDomains  String   @default("") @db.VarChar(1024)
+  plan            String   @default("starter") @db.VarChar(32)
+  status          String   @default("active") @db.VarChar(32) // active|trial|provisioning|suspended
+  mailboxLimit    Int      @default(25)
+  /// Branding: { primary, accent, logoUrl, faviconUrl, welcomeMessage, supportEmail }
+  branding        Json?
+  /// True when the tenant was auto-provisioned from a login/host instead of onboarding.
+  autoCreated     Boolean  @default(false)
+  mailServerId    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  mailServer MailServer?    @relation(fields: [mailServerId], references: [id], onDelete: SetNull)
+  domains    TenantDomain[]
+
+  @@index([status])
+}
+
+/// Extra hostnames that resolve to a tenant (vanity hosts, legacy domains).
+model TenantDomain {
+  id        String   @id @default(uuid())
+  tenantId  String   @db.VarChar(64)
+  hostname  String   @unique @db.VarChar(255)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
 }

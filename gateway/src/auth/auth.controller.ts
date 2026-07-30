@@ -17,7 +17,8 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   login(@Body() dto: LoginDto, @Req() req: Request) {
-    return this.auth.login(dto, ipOf(req), req.headers['user-agent']);
+    const host = (req.headers['x-forwarded-host'] as string) ?? req.headers.host;
+    return this.auth.login(dto, ipOf(req), req.headers['user-agent'], host);
   }
 
   @Post('refresh')

@@ -1,7 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ImapFlow } from 'imapflow';
 import { SessionStoreService } from '../auth/session-store.service';
-import { imapBaseOptions } from './imap-options';
+import { imapBaseOptions, ImapOverrides } from './imap-options';
+import type { ResolvedMailServer } from '../tenants/tenant.service';
 
 interface PooledConnection {
   client: ImapFlow;
@@ -30,8 +31,12 @@ export class ImapPoolService implements OnModuleDestroy {
   }
 
   /** Quick credential check without keeping a connection open. */
-  async verifyCredentials(email: string, password: string): Promise<boolean> {
-    const client = this.buildClient(email, password);
+  async verifyCredentials(
+    email: string,
+    password: string,
+    mailServer?: ResolvedMailServer | null,
+  ): Promise<boolean> {
+    const client = this.buildClient(email, password, mailServer);
     try {
       await client.connect();
       await client.logout();
@@ -70,7 +75,7 @@ export class ImapPoolService implements OnModuleDestroy {
     if (pool.connections.length < max) {
       const password = this.sessions.password(sessionId);
       if (!password) throw new Error('Session lost');
-      const client = this.buildClient(session.email, password);
+      const client = this.buildClient(session.email, password, session.mailServer);
       await client.connect();
       const conn: PooledConnection = { client, busy: true, lastUsedAt: Date.now() };
       pool.connections.push(conn);
@@ -121,9 +126,13 @@ export class ImapPoolService implements OnModuleDestroy {
     for (const id of Array.from(this.pools.keys())) await this.close(id);
   }
 
-  private buildClient(email: string, password: string): ImapFlow {
+  private buildClient(
+    email: string,
+    password: string,
+    mailServer?: ResolvedMailServer | null,
+  ): ImapFlow {
     return new ImapFlow({
-      ...imapBaseOptions(),
+      ...imapBaseOptions(toImapOverrides(mailServer)),
       auth: { user: email, pass: password },
       logger: false,
       emitLogs: false,
@@ -144,4 +153,16 @@ export class ImapPoolService implements OnModuleDestroy {
       }
     }
   }
+}
+
+/** Maps a tenant's MailServer row onto IMAP connection overrides. */
+export function toImapOverrides(s?: ResolvedMailServer | null): ImapOverrides | null {
+  if (!s) return null;
+  return {
+    host: s.imapHost,
+    port: s.imapPort,
+    secure: s.imapSecure,
+    servername: s.imapTlsServername,
+    rejectUnauthorized: s.imapRejectUnauthorized,
+  };
 }
