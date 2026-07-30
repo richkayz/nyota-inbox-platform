@@ -250,9 +250,34 @@ export class MailService {
       const parsed = await this.parseSource(msg.source as Buffer);
       const structureAttachments = this.collectAttachments(msg.bodyStructure);
       const attachments = this.mergeAttachments(structureAttachments, parsed);
-      const text = parsed.text?.trim() ? parsed.text : undefined;
-      const html = parsed.html?.trim() ? parsed.html : undefined;
+      let text = parsed.text?.trim() ? parsed.text : undefined;
+      let html = parsed.html?.trim() ? parsed.html : undefined;
+
+      // Fallback: some servers/clients (notably Sent copies appended by other
+      // MUAs) produce sources mailparser can't fully decode. Pull the text
+      // parts straight off IMAP so the reading pane is never blank.
+      if (!text && !html) {
+        const candidates = this.textPartNumbers(msg.bodyStructure);
+        for (const candidate of candidates.slice(0, 4)) {
+          const raw = await this.downloadPartAsText(conn.client, Number(msg.uid), candidate.part);
+          if (!raw?.trim()) continue;
+          if (candidate.type === 'text/html') html = raw;
+          else text = raw;
+          if (html || text) break;
+        }
+        if (!text && !html) {
+          const raw = (msg.source as Buffer)?.toString('utf8') ?? '';
+          const idx = raw.indexOf('\r\n\r\n');
+          const body = idx >= 0 ? raw.slice(idx + 4) : '';
+          if (body.trim()) {
+            if (/<\/?(html|body|div|p|table|br)/i.test(body)) html = body;
+            else text = body;
+          }
+        }
+      }
+
       const snippet = this.buildSnippet(text, html);
+
 
       return {
         uid: Number(msg.uid),
