@@ -116,15 +116,17 @@ export function Composer({
   open,
   onOpenChange,
   defaultTo = "",
+  defaultCc = "",
   defaultSubject = "",
   defaultBody = "",
+  defaultHtml = "",
   inReplyTo,
   references,
 }: Props) {
   const [to, setTo] = useState(defaultTo);
-  const [cc, setCc] = useState("");
+  const [cc, setCc] = useState(defaultCc);
   const [bcc, setBcc] = useState("");
-  const [showCc, setShowCc] = useState(false);
+  const [showCc, setShowCc] = useState(Boolean(defaultCc));
   const [showBcc, setShowBcc] = useState(false);
   const [subject, setSubject] = useState(defaultSubject);
   const [expanded, setExpanded] = useState(false);
@@ -143,7 +145,8 @@ export function Composer({
   // Seed on open: restore draft for a fresh compose, otherwise use reply defaults.
   useEffect(() => {
     if (!open) return;
-    const isReply = Boolean(inReplyTo) || Boolean(defaultTo) || Boolean(defaultSubject);
+    const isReply =
+      Boolean(inReplyTo) || Boolean(defaultTo) || Boolean(defaultSubject) || Boolean(defaultHtml);
     let seeded = false;
     if (!isReply) {
       try {
@@ -168,17 +171,31 @@ export function Composer({
     if (!seeded) {
       setTo(defaultTo);
       setSubject(defaultSubject);
-      setCc("");
+      setCc(defaultCc);
       setBcc("");
-      setShowCc(false);
+      setShowCc(Boolean(defaultCc));
       setShowBcc(false);
       const body = defaultBody ? `${escapeHtml(defaultBody).replace(/\n/g, "<br>")}` : "";
-      requestAnimationFrame(() => setEditorHtml(body + signatureHtml()));
+      requestAnimationFrame(() => {
+        setEditorHtml(`${body}${signatureHtml()}${defaultHtml}`);
+        // Put the caret at the very top so the reply is typed above the quote.
+        const el = editorRef.current;
+        if (el) {
+          el.focus();
+          const range = document.createRange();
+          range.setStart(el, 0);
+          range.collapse(true);
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        }
+      });
     }
     setAttachments([]);
     setSavedAt(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, defaultTo, defaultSubject, defaultBody, inReplyTo]);
+  }, [open, defaultTo, defaultCc, defaultSubject, defaultBody, defaultHtml, inReplyTo]);
+
 
   // Draft autosave (every 2s while open).
   useEffect(() => {
