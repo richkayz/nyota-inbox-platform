@@ -163,18 +163,27 @@ export class MailService {
         matchedUids = await this.searchUids(conn.client, q);
       }
 
+      // Highest existing UID — NOT `exists` (message count). They only
+      // coincide in a mailbox that has never had a deletion (typically INBOX);
+      // in Sent they diverge, which silently paged the wrong UID window.
+      const highestUid = Math.max(
+        1,
+        Number(mailbox.uidNext ?? 0) - 1 || Number(mailbox.exists ?? 1),
+      );
+
       let startUid: number;
       if (cursor) {
         const [cv, cUid] = cursor.split(':');
         if (cv !== validity) {
           // UIDVALIDITY changed — restart from newest.
-          startUid = mailbox.exists;
+          startUid = highestUid;
         } else {
           startUid = Math.max(1, Number(cUid));
         }
       } else {
-        startUid = mailbox.exists;
+        startUid = highestUid;
       }
+
 
       if (matchedUids) {
         const slice = matchedUids.filter((u) => u <= startUid).slice(0, limit);
@@ -241,9 +250,34 @@ export class MailService {
       const parsed = await this.parseSource(msg.source as Buffer);
       const structureAttachments = this.collectAttachments(msg.bodyStructure);
       const attachments = this.mergeAttachments(structureAttachments, parsed);
-      const text = parsed.text?.trim() ? parsed.text : undefined;
-      const html = parsed.html?.trim() ? parsed.html : undefined;
+      let text = parsed.text?.trim() ? parsed.text : undefined;
+      let html = parsed.html?.trim() ? parsed.html : undefined;
+
+      // Fallback: some servers/clients (notably Sent copies appended by other
+      // MUAs) produce sources mailparser can't fully decode. Pull the text
+      // parts straight off IMAP so the reading pane is never blank.
+      if (!text && !html) {
+        const candidates = this.textPartNumbers(msg.bodyStructure);
+        for (const candidate of candidates.slice(0, 4)) {
+          const raw = await this.downloadPartAsText(conn.client, Number(msg.uid), candidate.part);
+          if (!raw?.trim()) continue;
+          if (candidate.type === 'text/html') html = raw;
+          else text = raw;
+          if (html || text) break;
+        }
+        if (!text && !html) {
+          const raw = (msg.source as Buffer)?.toString('utf8') ?? '';
+          const idx = raw.indexOf('\r\n\r\n');
+          const body = idx >= 0 ? raw.slice(idx + 4) : '';
+          if (body.trim()) {
+            if (/<\/?(html|body|div|p|table|br)/i.test(body)) html = body;
+            else text = body;
+          }
+        }
+      }
+
       const snippet = this.buildSnippet(text, html);
+
 
       return {
         uid: Number(msg.uid),
@@ -341,7 +375,10 @@ export class MailService {
       if (conn) {
         try {
           const raw = this.buildRfc822(msg, res.messageId);
-          await conn.client.append('Sent', raw, ['\\Seen']);
+          // Dovecot/Plesk namespaces Sent as "INBOX.Sent" — resolve the real
+          // path instead of guessing, or the copy never lands in Sent.
+          const sentPath = await this.resolveSentPath(conn.client);
+          await conn.client.append(sentPath, raw, ['\\Seen']);
         } catch (e) {
           this.logger.warn(`Append-to-Sent failed: ${(e as Error).message}`);
         } finally {
@@ -349,18 +386,20 @@ export class MailService {
         }
       }
     }
+
     return res;
   }
 
   private async fetchEnvelopes(client: any, folder: string, uidRange: string): Promise<MessageListItem[]> {
     const out: MessageListItem[] = [];
+    const needsBackfill: Array<{ item: MessageListItem; structure: any }> = [];
     for await (const msg of client.fetch(
       uidRange,
       { uid: true, envelope: true, flags: true, bodyStructure: true, bodyParts: SNIPPET_PARTS },
       { uid: true },
     )) {
       const snippet = this.snippetFromParts(msg.bodyStructure, msg.bodyParts);
-      out.push({
+      const item: MessageListItem = {
         uid: Number(msg.uid),
         folder,
         from: this.addr(msg.envelope?.from?.[0]),
@@ -372,10 +411,57 @@ export class MailService {
         unread: !msg.flags?.has('\\Seen'),
         starred: !!msg.flags?.has('\\Flagged'),
         hasAttachment: this.collectAttachments(msg.bodyStructure).some((a) => !a.inline),
-      });
+      };
+      out.push(item);
+      if (!snippet) needsBackfill.push({ item, structure: msg.bodyStructure });
     }
+
+    // Speculative part numbers (1, 1.1, 2 …) miss non-standard MIME layouts —
+    // very common in Sent copies written by other clients. Download the real
+    // text part for those rows so previews are never blank.
+    for (const { item, structure } of needsBackfill) {
+      const snippet = await this.snippetByDownload(client, item.uid, structure);
+      if (snippet) {
+        item.snippet = snippet;
+        item.preview = snippet;
+      }
+    }
+
     return out.sort((a, b) => b.uid - a.uid);
   }
+
+  /** Downloads the best text part for one message and renders a preview. */
+  private async snippetByDownload(client: any, uid: number, structure: any): Promise<string> {
+    const candidates = this.textPartNumbers(structure);
+    const ordered = [
+      ...candidates.filter((c) => c.type === 'text/plain'),
+      ...candidates.filter((c) => c.type === 'text/html'),
+    ];
+    for (const candidate of ordered.slice(0, 3)) {
+      const raw = await this.downloadPartAsText(client, uid, candidate.part);
+      if (!raw) continue;
+      const flat = candidate.type === 'text/html' ? this.htmlToText(raw) : raw;
+      const clean = this.normalizeSnippet(flat);
+      if (clean) return clean;
+    }
+    return '';
+  }
+
+  private async downloadPartAsText(client: any, uid: number, part: string): Promise<string> {
+    try {
+      const dl = await client.download(String(uid), part, { uid: true });
+      if (!dl?.content) return '';
+      const chunks: Buffer[] = [];
+      for await (const chunk of dl.content as AsyncIterable<Buffer>) {
+        chunks.push(Buffer.from(chunk));
+        if (chunks.reduce((n, c) => n + c.length, 0) > 256 * 1024) break;
+      }
+      return Buffer.concat(chunks).toString('utf8');
+    } catch {
+      return '';
+    }
+  }
+
 
   /**
    * Picks the best textual body part from the speculative snippet fetch and
@@ -560,7 +646,22 @@ export class MailService {
     });
   }
 
+  /** Finds the mailbox flagged \Sent, falling back to common Plesk paths. */
+  private async resolveSentPath(client: any): Promise<string> {
+    try {
+      const list = await client.list();
+      const special = list.find((f: any) => f.specialUse === '\\Sent');
+      if (special?.path) return special.path;
+      const named = list.find((f: any) => /(^|[./])sent(\s?items)?$/i.test(f.path));
+      if (named?.path) return named.path;
+    } catch {
+      /* fall through to the conventional path */
+    }
+    return 'INBOX.Sent';
+  }
+
   private buildRfc822(msg: OutgoingMessage, messageId: string): string {
+    const body = msg.html ?? msg.text ?? '';
     const lines: string[] = [
       `Message-ID: ${messageId}`,
       `From: ${msg.from}`,
@@ -570,11 +671,15 @@ export class MailService {
       `Date: ${new Date().toUTCString()}`,
       `MIME-Version: 1.0`,
       msg.html ? `Content-Type: text/html; charset=utf-8` : `Content-Type: text/plain; charset=utf-8`,
+      `Content-Transfer-Encoding: base64`,
       '',
-      msg.html ?? msg.text ?? '',
+      // Base64 keeps the appended copy valid for any body (UTF-8, long lines,
+      // raw HTML) so the reading pane can always decode it back.
+      (Buffer.from(body, 'utf8').toString('base64').match(/.{1,76}/g) ?? []).join('\r\n'),
     ].filter(Boolean);
     return lines.join('\r\n');
   }
+
 }
 
 interface ParsedResult {
