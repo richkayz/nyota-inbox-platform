@@ -27,7 +27,7 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 RestrictNamespaces=true
 LockPersonality=true
-MemoryDenyWriteExecute=true
+# MemoryDenyWriteExecute must stay off: it blocks V8's JIT and Node aborts with SIGTRAP.
 SystemCallArchitectures=native
 
 [Install]
