@@ -4,6 +4,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 import configuration from './config/configuration';
 import { PrismaModule } from './prisma/prisma.module';
+import { SessionModule } from './auth/session.module';
 import { AuthModule } from './auth/auth.module';
 import { ImapModule } from './imap/imap.module';
 import { SmtpModule } from './smtp/smtp.module';
@@ -25,6 +26,7 @@ import { HealthModule } from './health/health.module';
       },
     ]),
     PrismaModule,
+    SessionModule,
     AuthModule,
     ImapModule,
     SmtpModule,
