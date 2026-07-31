@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate, redirect, Link } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/layout/AppShell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -7,7 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getSession, getSessionStatus } from "@/lib/mock-auth";
 import { loadDraft, loadProvisionedTenants } from "@/lib/onboarding";
-import { Plus, Server, Building2, Activity } from "lucide-react";
+import { mailClient, isLiveMode } from "@/lib/api/client";
+import type { AuditRecord, PlatformOverview } from "@/lib/api/types";
+import { Plus, Server, Building2, Activity, Loader2 } from "lucide-react";
+
 
 
 export const Route = createFileRoute("/super-admin")({
@@ -33,45 +37,76 @@ export const Route = createFileRoute("/super-admin")({
   component: SuperAdminPage,
 });
 
-const TENANTS = [
-  { id: "nyota", name: "Nyota One", hostname: "inbox.nyota.one", users: 42, server: "plesk-eu-1", plan: "Business", status: "active" },
-  { id: "acme", name: "Acme Corp", hostname: "inbox.acme.com", users: 128, server: "plesk-eu-2", plan: "Enterprise", status: "active" },
-  { id: "orbit", name: "Orbit Labs", hostname: "inbox.orbit.io", users: 17, server: "plesk-us-1", plan: "Starter", status: "trial" },
-];
-
-const SERVERS = [
-  { id: "plesk-eu-1", hostname: "mail-eu-1.plesk.io", region: "EU-West", tenants: 1, uptime: "99.98%", status: "healthy" },
-  { id: "plesk-eu-2", hostname: "mail-eu-2.plesk.io", region: "EU-Central", tenants: 1, uptime: "99.99%", status: "healthy" },
-  { id: "plesk-us-1", hostname: "mail-us-1.plesk.io", region: "US-East", tenants: 1, uptime: "99.90%", status: "degraded" },
-];
-
 function SuperAdminPage() {
   const navigate = useNavigate();
   const session = getSession();
   useEffect(() => {
     if (!session) navigate({ to: "/login" });
   }, [session, navigate]);
+
+  const overview = useQuery<PlatformOverview>({
+    queryKey: ["platform", "overview"],
+    queryFn: () => mailClient.platformOverview(),
+    enabled: !!session,
+    staleTime: 30_000,
+  });
+
+  const audit = useQuery({
+    queryKey: ["platform", "audit"],
+    queryFn: async () => {
+      const res = await mailClient.platformAudit();
+      return (Array.isArray(res) ? res : res.items) as AuditRecord[];
+    },
+    enabled: !!session,
+    staleTime: 30_000,
+  });
+
   if (!session) return null;
 
-  const onboarded = loadProvisionedTenants().map((d) => ({
-    id: d.slug,
-    name: d.companyName,
-    hostname: d.hostname,
-    server: d.mailServerId,
-    plan: d.plan.charAt(0).toUpperCase() + d.plan.slice(1),
-    users: d.mailboxes.length,
-    status: "provisioning",
-  }));
-  const tenants = [...onboarded, ...TENANTS];
+  // Locally provisioned drafts (wizard) are shown until the gateway confirms them.
+  const gatewayTenants = overview.data?.tenants ?? [];
+  const knownIds = new Set(gatewayTenants.map((t) => t.id));
+  const onboarded = loadProvisionedTenants()
+    .filter((d) => !knownIds.has(d.slug))
+    .map((d) => ({
+      id: d.slug,
+      name: d.companyName,
+      hostname: d.hostname,
+      server: d.mailServerId,
+      plan: d.plan,
+      users: d.mailboxes.length,
+      status: "provisioning",
+    }));
+  const tenants = [...onboarded, ...gatewayTenants.map((t) => ({
+    id: t.id,
+    name: t.name,
+    hostname: t.hostname,
+    server: t.server,
+    plan: t.plan,
+    users: t.users,
+    status: t.status,
+  }))];
+  const servers = overview.data?.servers ?? [];
 
   return (
     <AppShell title="Platform Admin">
       <div className="mx-auto max-w-6xl p-6">
+        {overview.isError && (
+          <div className="mb-4 rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+            Could not load platform data from the gateway. {(overview.error as Error)?.message}
+          </div>
+        )}
         <div className="mb-6 grid gap-4 sm:grid-cols-3">
-          <Stat icon={Building2} label="Tenants" value={tenants.length.toString()} />
-          <Stat icon={Server} label="Mail servers" value={SERVERS.length.toString()} />
-          <Stat icon={Activity} label="Active users" value={tenants.reduce((a, t) => a + t.users, 0).toString()} />
+          <Stat icon={Building2} label="Tenants" value={tenants.length.toString()} loading={overview.isLoading} />
+          <Stat icon={Server} label="Mail servers" value={servers.length.toString()} loading={overview.isLoading} />
+          <Stat
+            icon={Activity}
+            label="Mailboxes"
+            value={tenants.reduce((a, t) => a + t.users, 0).toString()}
+            loading={overview.isLoading}
+          />
         </div>
+
 
 
         <Tabs defaultValue="tenants">
@@ -122,22 +157,27 @@ function SuperAdminPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>ID</TableHead>
+                    <TableHead>Name</TableHead>
                     <TableHead>Hostname</TableHead>
                     <TableHead>Region</TableHead>
                     <TableHead>Tenants</TableHead>
-                    <TableHead>Uptime</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {SERVERS.map((s) => (
+                  {servers.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-sm text-muted-foreground">
+                        {overview.isLoading ? "Loading mail servers…" : "No mail servers registered yet."}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {servers.map((s) => (
                     <TableRow key={s.id}>
                       <TableCell className="font-mono text-xs">{s.id}</TableCell>
                       <TableCell className="font-mono text-xs">{s.hostname}</TableCell>
-                      <TableCell>{s.region}</TableCell>
+                      <TableCell>{s.region ?? "—"}</TableCell>
                       <TableCell>{s.tenants}</TableCell>
-                      <TableCell>{s.uptime}</TableCell>
                       <TableCell>
                         <Badge variant={s.status === "healthy" ? "default" : "destructive"}>{s.status}</Badge>
                       </TableCell>
@@ -152,30 +192,52 @@ function SuperAdminPage() {
             <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
               <h2 className="mb-4 text-base font-semibold">Audit log</h2>
               <ul className="space-y-3 font-mono text-xs">
-                {[
-                  { t: "12:41", who: "super@nyota.one", what: "tenant.create", target: "orbit.io" },
-                  { t: "12:14", who: "amara@nyota.one", what: "user.invite", target: "lucas@nyota.one" },
-                  { t: "10:02", who: "system", what: "mail-server.health", target: "plesk-us-1 → degraded" },
-                  { t: "09:58", who: "david@nyota.one", what: "auth.login", target: "203.0.113.42" },
-                ].map((row, i) => (
-                  <li key={i} className="flex flex-wrap items-center gap-3 border-b border-border pb-2 last:border-0">
-                    <span className="text-muted-foreground">{row.t}</span>
-                    <span>{row.who}</span>
-                    <Badge variant="outline" className="font-mono">{row.what}</Badge>
-                    <span className="text-muted-foreground">→ {row.target}</span>
+                {(audit.data ?? []).map((row) => (
+                  <li key={row.id} className="flex flex-wrap items-center gap-3 border-b border-border pb-2 last:border-0">
+                    <span className="text-muted-foreground">
+                      {new Date(row.createdAt).toLocaleString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    <span>{row.email ?? row.userId ?? "system"}</span>
+                    <Badge variant="outline" className="font-mono">{row.type}</Badge>
+                    {row.ip && <span className="text-muted-foreground">→ {row.ip}</span>}
                   </li>
                 ))}
+                {(audit.data ?? []).length === 0 && (
+                  <li className="text-muted-foreground">
+                    {audit.isLoading ? "Loading audit events…" : "No platform audit events yet."}
+                  </li>
+                )}
               </ul>
-              <p className="mt-4 text-xs text-muted-foreground">Real impl: append-only, hash-chained rows in Postgres.</p>
+              <p className="mt-4 text-xs text-muted-foreground">
+                {isLiveMode
+                  ? "Append-only, hash-chained rows served by the gateway."
+                  : "Mock mode — connect the gateway to see real audit events."}
+              </p>
             </div>
           </TabsContent>
+
         </Tabs>
       </div>
     </AppShell>
   );
 }
 
-function Stat({ icon: Icon, label, value }: { icon: typeof Server; label: string; value: string }) {
+function Stat({
+  icon: Icon,
+  label,
+  value,
+  loading,
+}: {
+  icon: typeof Server;
+  label: string;
+  value: string;
+  loading?: boolean;
+}) {
   return (
     <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-center gap-3">
@@ -184,9 +246,12 @@ function Stat({ icon: Icon, label, value }: { icon: typeof Server; label: string
         </div>
         <div>
           <div className="text-xs text-muted-foreground">{label}</div>
-          <div className="text-xl font-semibold">{value}</div>
+          <div className="text-xl font-semibold">
+            {loading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : value}
+          </div>
         </div>
       </div>
+
     </div>
   );
 }

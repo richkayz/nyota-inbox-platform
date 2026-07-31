@@ -12,9 +12,13 @@ import type {
   MessageDetail,
   MessageListItem,
   Page,
+  PlatformOverview,
   SendMessageInput,
   SseEvent,
+  TenantBrandingPayload,
+  TenantMe,
 } from "./types";
+
 
 const ACCESS_KEY = "nyota.tokens.access";
 const REFRESH_KEY = "nyota.tokens.refresh";
@@ -156,6 +160,27 @@ export function createHttpAdapter(baseUrl: string): MailClient {
       if (cursor) params.set("cursor", cursor);
       return request<Page<AuditRecord>>(`/audit?${params.toString()}`);
     },
+
+    tenantBranding: () => request<TenantBrandingPayload>("/tenant/branding"),
+    tenantMe: () => request<TenantMe>("/tenant/me"),
+    platformOverview: () => request<PlatformOverview>("/super-admin/overview"),
+    createTenant: (input) =>
+      request<{ id: string }>("/super-admin/tenants", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    setTenantStatus: (id, status) =>
+      request<{ id: string; status: string }>(
+        `/super-admin/tenants/${encodeURIComponent(id)}/status`,
+        { method: "PATCH", body: JSON.stringify({ status }) },
+      ),
+    createMailServer: (input) =>
+      request<{ id?: string; name: string }>("/super-admin/mail-servers", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    platformAudit: () => request<Page<AuditRecord> | AuditRecord[]>("/super-admin/audit"),
+
     async diagnostics(): Promise<Diagnostics> {
       const started = Date.now();
       const data = await request<Omit<Diagnostics, "mode"> & { mode?: "live" }>("/health/diagnostics");
