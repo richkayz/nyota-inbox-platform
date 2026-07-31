@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate, redirect, Link } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/layout/AppShell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -7,7 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getSession, getSessionStatus } from "@/lib/mock-auth";
 import { loadDraft, loadProvisionedTenants } from "@/lib/onboarding";
-import { Plus, Server, Building2, Activity } from "lucide-react";
+import { mailClient, isLiveMode } from "@/lib/api/client";
+import type { AuditRecord, PlatformOverview } from "@/lib/api/types";
+import { Plus, Server, Building2, Activity, Loader2 } from "lucide-react";
+
 
 
 export const Route = createFileRoute("/super-admin")({
