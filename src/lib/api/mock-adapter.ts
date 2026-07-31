@@ -316,6 +316,77 @@ export function createMockAdapter(): MailClient {
       return { items: [], nextCursor: null };
     },
 
+    async tenantBranding() {
+      await delay(60);
+      const t = resolveInitialTenant();
+      return {
+        id: t.id,
+        name: t.name,
+        hostname: t.hostname,
+        status: "active",
+        plan: "mock",
+        primary: t.primary,
+        accent: t.accent,
+        logoUrl: t.logoUrl,
+        faviconUrl: t.faviconUrl,
+        welcomeMessage: t.welcomeMessage,
+        supportEmail: t.supportEmail,
+      };
+    },
+    async tenantMe() {
+      await delay(60);
+      const t = resolveInitialTenant();
+      return {
+        id: t.id,
+        name: t.name,
+        hostname: t.hostname,
+        plan: "mock",
+        status: "active",
+        mailboxLimit: 25,
+        allowedDomains: [],
+        branding: null,
+        role: "USER" as const,
+      };
+    },
+    async platformOverview() {
+      await delay(120);
+      const tenants = MOCK_TENANTS.map((t) => ({
+        ...t,
+        allowedDomains: [],
+        mailboxLimit: 25,
+        autoCreated: false,
+        createdAt: new Date().toISOString(),
+        branding: null,
+        extraDomains: [],
+      }));
+      return {
+        tenants,
+        servers: MOCK_SERVERS,
+        totals: {
+          tenants: tenants.length,
+          servers: MOCK_SERVERS.length,
+          users: tenants.reduce((a, t) => a + t.users, 0),
+        },
+      };
+    },
+    async createTenant(input) {
+      await delay(150);
+      return { id: input.slug };
+    },
+    async setTenantStatus(id, status) {
+      await delay(100);
+      return { id, status };
+    },
+    async createMailServer(input) {
+      await delay(120);
+      return { name: input.name };
+    },
+    async platformAudit() {
+      await delay(80);
+      return { items: [], nextCursor: null };
+    },
+
+
 
     async diagnostics() {
       await delay(120);
