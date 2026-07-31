@@ -157,22 +157,27 @@ function SuperAdminPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>ID</TableHead>
+                    <TableHead>Name</TableHead>
                     <TableHead>Hostname</TableHead>
                     <TableHead>Region</TableHead>
                     <TableHead>Tenants</TableHead>
-                    <TableHead>Uptime</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {SERVERS.map((s) => (
+                  {servers.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-sm text-muted-foreground">
+                        {overview.isLoading ? "Loading mail servers…" : "No mail servers registered yet."}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {servers.map((s) => (
                     <TableRow key={s.id}>
                       <TableCell className="font-mono text-xs">{s.id}</TableCell>
                       <TableCell className="font-mono text-xs">{s.hostname}</TableCell>
-                      <TableCell>{s.region}</TableCell>
+                      <TableCell>{s.region ?? "—"}</TableCell>
                       <TableCell>{s.tenants}</TableCell>
-                      <TableCell>{s.uptime}</TableCell>
                       <TableCell>
                         <Badge variant={s.status === "healthy" ? "default" : "destructive"}>{s.status}</Badge>
                       </TableCell>
@@ -187,23 +192,35 @@ function SuperAdminPage() {
             <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
               <h2 className="mb-4 text-base font-semibold">Audit log</h2>
               <ul className="space-y-3 font-mono text-xs">
-                {[
-                  { t: "12:41", who: "super@nyota.one", what: "tenant.create", target: "orbit.io" },
-                  { t: "12:14", who: "amara@nyota.one", what: "user.invite", target: "lucas@nyota.one" },
-                  { t: "10:02", who: "system", what: "mail-server.health", target: "plesk-us-1 → degraded" },
-                  { t: "09:58", who: "david@nyota.one", what: "auth.login", target: "203.0.113.42" },
-                ].map((row, i) => (
-                  <li key={i} className="flex flex-wrap items-center gap-3 border-b border-border pb-2 last:border-0">
-                    <span className="text-muted-foreground">{row.t}</span>
-                    <span>{row.who}</span>
-                    <Badge variant="outline" className="font-mono">{row.what}</Badge>
-                    <span className="text-muted-foreground">→ {row.target}</span>
+                {(audit.data ?? []).map((row) => (
+                  <li key={row.id} className="flex flex-wrap items-center gap-3 border-b border-border pb-2 last:border-0">
+                    <span className="text-muted-foreground">
+                      {new Date(row.createdAt).toLocaleString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    <span>{row.email ?? row.userId ?? "system"}</span>
+                    <Badge variant="outline" className="font-mono">{row.type}</Badge>
+                    {row.ip && <span className="text-muted-foreground">→ {row.ip}</span>}
                   </li>
                 ))}
+                {(audit.data ?? []).length === 0 && (
+                  <li className="text-muted-foreground">
+                    {audit.isLoading ? "Loading audit events…" : "No platform audit events yet."}
+                  </li>
+                )}
               </ul>
-              <p className="mt-4 text-xs text-muted-foreground">Real impl: append-only, hash-chained rows in Postgres.</p>
+              <p className="mt-4 text-xs text-muted-foreground">
+                {isLiveMode
+                  ? "Append-only, hash-chained rows served by the gateway."
+                  : "Mock mode — connect the gateway to see real audit events."}
+              </p>
             </div>
           </TabsContent>
+
         </Tabs>
       </div>
     </AppShell>
