@@ -3,17 +3,40 @@
 // remove, send, contacts) update the store and are reflected on re-fetch,
 // which makes optimistic-update rollback behave correctly.
 
+import { resolveInitialTenant } from "@/lib/tenants";
 import type {
   AuthTokens,
   Contact,
   FolderSummary,
   MailClient,
+  MailServerSummary,
   MessageDetail,
   MessageListItem,
   Page,
   SendMessageInput,
   SseEvent,
 } from "./types";
+
+const MOCK_TENANTS: Array<{
+  id: string;
+  name: string;
+  hostname: string;
+  users: number;
+  server: string | null;
+  plan: string;
+  status: string;
+}> = [
+  { id: "nyota", name: "Nyota One", hostname: "inbox.nyota.one", users: 42, server: "plesk-eu-1", plan: "business", status: "active" },
+  { id: "acme", name: "Acme Corp", hostname: "inbox.acme.com", users: 128, server: "plesk-eu-2", plan: "enterprise", status: "active" },
+  { id: "orbit", name: "Orbit Labs", hostname: "inbox.orbit.io", users: 17, server: "plesk-us-1", plan: "starter", status: "trial" },
+];
+
+const MOCK_SERVERS: MailServerSummary[] = [
+  { id: "plesk-eu-1", hostname: "mail-eu-1.plesk.io", region: "EU-West", tenants: 1, status: "healthy" },
+  { id: "plesk-eu-2", hostname: "mail-eu-2.plesk.io", region: "EU-Central", tenants: 1, status: "healthy" },
+  { id: "plesk-us-1", hostname: "mail-us-1.plesk.io", region: "US-East", tenants: 1, status: "degraded" },
+];
+
 
 const FOLDERS_DEF: Array<{ path: string; name: string; role: FolderSummary["role"] }> = [
   { path: "inbox", name: "Inbox", role: "inbox" },
