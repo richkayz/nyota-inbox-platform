@@ -101,6 +101,94 @@ export interface AuditRecord {
   createdAt: string;
 }
 
+/** Host-resolved public branding served by GET /tenant/branding. */
+export interface TenantBrandingPayload {
+  id: string | null;
+  name?: string;
+  hostname?: string;
+  host?: string | null;
+  status?: string;
+  plan?: string;
+  primary?: string;
+  accent?: string;
+  logoUrl?: string;
+  faviconUrl?: string;
+  welcomeMessage?: string;
+  supportEmail?: string;
+}
+
+/** GET /tenant/me — the signed-in user's own tenant. */
+export interface TenantMe {
+  id: string;
+  name: string;
+  hostname?: string;
+  plan?: string;
+  status: string;
+  mailboxLimit?: number;
+  allowedDomains?: string[];
+  branding?: Record<string, string> | null;
+  role?: "USER" | "COMPANY_ADMIN" | "SUPER_ADMIN";
+}
+
+export interface TenantSummary {
+  id: string;
+  name: string;
+  hostname: string;
+  allowedDomains: string[];
+  plan: string;
+  status: string;
+  mailboxLimit: number;
+  users: number;
+  server: string | null;
+  autoCreated: boolean;
+  createdAt: string;
+  branding?: Record<string, string> | null;
+  extraDomains: string[];
+}
+
+export interface MailServerSummary {
+  id: string;
+  hostname: string;
+  region?: string | null;
+  tenants: number;
+  status: string;
+}
+
+export interface PlatformOverview {
+  tenants: TenantSummary[];
+  servers: MailServerSummary[];
+  totals: { tenants: number; servers: number; users: number };
+}
+
+export interface CreateTenantInput {
+  slug: string;
+  name: string;
+  hostname: string;
+  allowedDomains: string[];
+  plan?: string;
+  status?: string;
+  mailboxLimit?: number;
+  mailServerId?: string;
+  adminEmail?: string;
+  branding?: Record<string, string>;
+  extraDomains?: string[];
+}
+
+export interface CreateMailServerInput {
+  name: string;
+  hostname: string;
+  region?: string;
+  imapHost?: string;
+  imapPort?: number;
+  imapSecure?: boolean;
+  imapTlsServername?: string;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpSecure?: boolean;
+  smtpTlsServername?: string;
+}
+
+
 
 export type SseEvent =
   | { type: "mail.new"; folder: string; count: number }
@@ -165,6 +253,17 @@ export interface MailClient {
   removeContact(id: string): Promise<void>;
 
   listAudit(input: { cursor?: string | null; limit?: number }): Promise<Page<AuditRecord>>;
+
+  /** Multi-tenancy (Phase 4). */
+  tenantBranding(): Promise<TenantBrandingPayload>;
+  tenantMe(): Promise<TenantMe>;
+  platformOverview(): Promise<PlatformOverview>;
+  createTenant(input: CreateTenantInput): Promise<{ id: string }>;
+  setTenantStatus(id: string, status: string): Promise<{ id: string; status: string }>;
+  createMailServer(input: CreateMailServerInput): Promise<{ id?: string; name: string }>;
+  platformAudit(): Promise<Page<AuditRecord> | AuditRecord[]>;
+
+
 
 
   diagnostics(): Promise<Diagnostics>;
