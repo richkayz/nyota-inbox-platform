@@ -37,45 +37,76 @@ export const Route = createFileRoute("/super-admin")({
   component: SuperAdminPage,
 });
 
-const TENANTS = [
-  { id: "nyota", name: "Nyota One", hostname: "inbox.nyota.one", users: 42, server: "plesk-eu-1", plan: "Business", status: "active" },
-  { id: "acme", name: "Acme Corp", hostname: "inbox.acme.com", users: 128, server: "plesk-eu-2", plan: "Enterprise", status: "active" },
-  { id: "orbit", name: "Orbit Labs", hostname: "inbox.orbit.io", users: 17, server: "plesk-us-1", plan: "Starter", status: "trial" },
-];
-
-const SERVERS = [
-  { id: "plesk-eu-1", hostname: "mail-eu-1.plesk.io", region: "EU-West", tenants: 1, uptime: "99.98%", status: "healthy" },
-  { id: "plesk-eu-2", hostname: "mail-eu-2.plesk.io", region: "EU-Central", tenants: 1, uptime: "99.99%", status: "healthy" },
-  { id: "plesk-us-1", hostname: "mail-us-1.plesk.io", region: "US-East", tenants: 1, uptime: "99.90%", status: "degraded" },
-];
-
 function SuperAdminPage() {
   const navigate = useNavigate();
   const session = getSession();
   useEffect(() => {
     if (!session) navigate({ to: "/login" });
   }, [session, navigate]);
+
+  const overview = useQuery<PlatformOverview>({
+    queryKey: ["platform", "overview"],
+    queryFn: () => mailClient.platformOverview(),
+    enabled: !!session,
+    staleTime: 30_000,
+  });
+
+  const audit = useQuery({
+    queryKey: ["platform", "audit"],
+    queryFn: async () => {
+      const res = await mailClient.platformAudit();
+      return (Array.isArray(res) ? res : res.items) as AuditRecord[];
+    },
+    enabled: !!session,
+    staleTime: 30_000,
+  });
+
   if (!session) return null;
 
-  const onboarded = loadProvisionedTenants().map((d) => ({
-    id: d.slug,
-    name: d.companyName,
-    hostname: d.hostname,
-    server: d.mailServerId,
-    plan: d.plan.charAt(0).toUpperCase() + d.plan.slice(1),
-    users: d.mailboxes.length,
-    status: "provisioning",
-  }));
-  const tenants = [...onboarded, ...TENANTS];
+  // Locally provisioned drafts (wizard) are shown until the gateway confirms them.
+  const gatewayTenants = overview.data?.tenants ?? [];
+  const knownIds = new Set(gatewayTenants.map((t) => t.id));
+  const onboarded = loadProvisionedTenants()
+    .filter((d) => !knownIds.has(d.slug))
+    .map((d) => ({
+      id: d.slug,
+      name: d.companyName,
+      hostname: d.hostname,
+      server: d.mailServerId,
+      plan: d.plan,
+      users: d.mailboxes.length,
+      status: "provisioning",
+    }));
+  const tenants = [...onboarded, ...gatewayTenants.map((t) => ({
+    id: t.id,
+    name: t.name,
+    hostname: t.hostname,
+    server: t.server,
+    plan: t.plan,
+    users: t.users,
+    status: t.status,
+  }))];
+  const servers = overview.data?.servers ?? [];
 
   return (
     <AppShell title="Platform Admin">
       <div className="mx-auto max-w-6xl p-6">
+        {overview.isError && (
+          <div className="mb-4 rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+            Could not load platform data from the gateway. {(overview.error as Error)?.message}
+          </div>
+        )}
         <div className="mb-6 grid gap-4 sm:grid-cols-3">
-          <Stat icon={Building2} label="Tenants" value={tenants.length.toString()} />
-          <Stat icon={Server} label="Mail servers" value={SERVERS.length.toString()} />
-          <Stat icon={Activity} label="Active users" value={tenants.reduce((a, t) => a + t.users, 0).toString()} />
+          <Stat icon={Building2} label="Tenants" value={tenants.length.toString()} loading={overview.isLoading} />
+          <Stat icon={Server} label="Mail servers" value={servers.length.toString()} loading={overview.isLoading} />
+          <Stat
+            icon={Activity}
+            label="Mailboxes"
+            value={tenants.reduce((a, t) => a + t.users, 0).toString()}
+            loading={overview.isLoading}
+          />
         </div>
+
 
 
         <Tabs defaultValue="tenants">
