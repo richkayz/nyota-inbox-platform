@@ -9,6 +9,9 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
   const port = Number(process.env.PORT ?? 4000);
+  // The gateway is intended to sit behind the local Plesk/nginx proxy.
+  // Keep it off the public interface unless a deployment explicitly opts in.
+  const host = process.env.HOST ?? '127.0.0.1';
   const origins = (process.env.CORS_ORIGINS ?? '')
     .split(',')
     .map((s) => s.trim())
@@ -46,8 +49,8 @@ async function bootstrap() {
   const doc = SwaggerModule.createDocument(app, swagger);
   SwaggerModule.setup('docs', app, doc);
 
-  await app.listen(port, '0.0.0.0');
-  logger.log(`Nyota Mail Gateway listening on :${port}`);
+  await app.listen(port, host);
+  logger.log(`Nyota Mail Gateway listening on ${host}:${port}`);
 }
 
 bootstrap().catch((err) => {
