@@ -50,7 +50,9 @@ sync_app() {
 }
 
 build_app() {
-  su -s /bin/bash "$USER" -c "cd $APP_DIR && npm ci --omit=dev=false && npx prisma generate && npm run build"
+  # The Nest compiler and Prisma CLI are development dependencies, so include
+  # them explicitly even when the server environment is production.
+  su -s /bin/bash "$USER" -c "cd $APP_DIR && npm ci --include=dev && npx prisma generate && npm run build"
 }
 
 migrate_db() {
