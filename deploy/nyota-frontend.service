@@ -1,0 +1,26 @@
+[Unit]
+Description=Nyota Inbox Frontend (TanStack Start / Nitro)
+After=network-online.target nyota-gateway.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nyota
+Group=nyota
+WorkingDirectory=/opt/nyota-frontend
+EnvironmentFile=/etc/nyota-frontend/env
+ExecStart=/usr/bin/node /opt/nyota-frontend/.output/server/index.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/nyota-frontend
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
