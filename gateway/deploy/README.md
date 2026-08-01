@@ -92,3 +92,27 @@ VITE_API_BASE_URL=https://inbox.example.com/api
   active sessions will be invalidated; users re-authenticate.
 - **Never** expose port 4000 to the public internet. Nginx is the only
   entry point.
+
+## 8. Versioned deployments from Git
+
+Production deploys a specific Git tag, never the latest branch head. On the
+VPS, clone the repository once outside `/opt` (the installer copies only the
+gateway source into `/opt/nyota-gateway`):
+
+```bash
+sudo mkdir -p /srv
+sudo git clone https://github.com/richkayz/nyota-inbox-platform.git /srv/nyota-inbox-platform
+cd /srv/nyota-inbox-platform
+sudo bash gateway/deploy/deploy-release.sh v0.1.0
+```
+
+For every later release, run the same command with its approved tag:
+
+```bash
+sudo bash /srv/nyota-inbox-platform/gateway/deploy/deploy-release.sh v0.1.1
+```
+
+The script fetches tags, checks out the requested tag in detached mode, runs
+the idempotent installer and Prisma migrations, restarts the service, and
+checks `/health`. To roll back, deploy the previous tag again. Do not run
+`git pull` in production.

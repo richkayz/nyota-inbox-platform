@@ -16,6 +16,17 @@ dist-ssr
 .nitro
 *.local
 
+# Runtime configuration -- never commit secrets. Keep only the sanitized
+# .env.example templates in version control.
+.env
+.env.*
+!.env.example
+!**/.env.example
+gateway/envi.txt
+
+# Local export artifacts
+nyotamail-frontend*.zip
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
