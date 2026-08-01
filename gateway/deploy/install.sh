@@ -10,6 +10,7 @@ LOG_DIR=/var/log/nyota-gateway
 USER=nyota
 NODE_MAJOR=20
 REPO_SRC="${REPO_SRC:-$(pwd)}"   # override for CI
+ENV_CREATED=false
 
 require_root() {
   if [[ $EUID -ne 0 ]]; then
@@ -53,7 +54,7 @@ build_app() {
 }
 
 migrate_db() {
-  su -s /bin/bash "$USER" -c "cd $APP_DIR && npx prisma migrate deploy" || {
+  su -s /bin/bash "$USER" -c "set -a && . $ENV_DIR/env && set +a && cd $APP_DIR && npx prisma migrate deploy" || {
     echo "Prisma migrate failed — check DATABASE_URL in $ENV_DIR/env" >&2
     exit 1
   }
@@ -62,6 +63,7 @@ migrate_db() {
 install_env() {
   if [[ ! -f "$ENV_DIR/env" ]]; then
     install -m 0640 -o root -g "$USER" "$APP_DIR/.env.example" "$ENV_DIR/env"
+    ENV_CREATED=true
     echo ">>> Edit $ENV_DIR/env before starting the service."
   fi
 }
@@ -82,8 +84,12 @@ main() {
   sync_app
   install_env
   build_app
-  migrate_db
   install_service
+  if [[ "$ENV_CREATED" == true ]]; then
+    echo "Environment template created at $ENV_DIR/env. Configure it, then rerun this installer."
+    exit 0
+  fi
+  migrate_db
   echo "Done. Start with: systemctl start nyota-gateway"
   echo "Health check:     curl -sf http://127.0.0.1:4000/docs >/dev/null && echo OK"
 }

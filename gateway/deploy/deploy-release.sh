@@ -34,6 +34,12 @@ fi
 git -C "$REPO_DIR" checkout --detach "refs/tags/$VERSION"
 
 REPO_SRC="$REPO_DIR/gateway" bash "$REPO_DIR/gateway/deploy/install.sh"
+
+if grep -q 'CHANGE_ME' /etc/nyota-gateway/env; then
+  echo "Configure /etc/nyota-gateway/env, then rerun this command." >&2
+  exit 1
+fi
+
 systemctl restart nyota-gateway
 curl -fsS http://127.0.0.1:4000/health >/dev/null
 

@@ -103,8 +103,12 @@ gateway source into `/opt/nyota-gateway`):
 sudo mkdir -p /srv
 sudo git clone https://github.com/richkayz/nyota-inbox-platform.git /srv/nyota-inbox-platform
 cd /srv/nyota-inbox-platform
-sudo bash gateway/deploy/deploy-release.sh v0.1.0
+sudo bash gateway/deploy/deploy-release.sh v0.1.1
 ```
+
+On the first run, the installer creates `/etc/nyota-gateway/env` and stops so
+you can enter the real secrets and MariaDB credentials. After editing it, run
+the exact same release command again. Later deployments reuse that file.
 
 For every later release, run the same command with its approved tag:
 
