@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, redirect, Link } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/layout/AppShell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -14,7 +14,7 @@ import { Plus, Server, Building2, Activity, Loader2 } from "lucide-react";
 
 
 
-export const Route = createFileRoute("/super-admin")({
+export const Route = createFileRoute("/super-admin/")({
   beforeLoad: ({ location }) => {
     if (typeof window === "undefined") return;
     const status = getSessionStatus();
@@ -40,6 +40,7 @@ export const Route = createFileRoute("/super-admin")({
 function SuperAdminPage() {
   const navigate = useNavigate();
   const session = getSession();
+  // const [selectedTenant, setSelectedTenant] = useState<any>(null);
   useEffect(() => {
     if (!session) navigate({ to: "/login" });
   }, [session, navigate]);
@@ -77,7 +78,7 @@ function SuperAdminPage() {
       users: d.mailboxes.length,
       status: "provisioning",
     }));
-  const tenants = [...onboarded, ...gatewayTenants.map((t) => ({
+  const tenants = gatewayTenants.map((t) => ({
     id: t.id,
     name: t.name,
     hostname: t.hostname,
@@ -85,7 +86,7 @@ function SuperAdminPage() {
     plan: t.plan,
     users: t.users,
     status: t.status,
-  }))];
+  }));
   const servers = overview.data?.servers ?? [];
 
   return (
@@ -96,16 +97,38 @@ function SuperAdminPage() {
             Could not load platform data from the gateway. {(overview.error as Error)?.message}
           </div>
         )}
-        <div className="mb-6 grid gap-4 sm:grid-cols-3">
-          <Stat icon={Building2} label="Tenants" value={tenants.length.toString()} loading={overview.isLoading} />
-          <Stat icon={Server} label="Mail servers" value={servers.length.toString()} loading={overview.isLoading} />
+      
+      
+
+      <div className="mb-6 grid gap-4 md:grid-cols-4">
+          <Stat
+            icon={Building2}
+            label="Customers"
+            value={tenants.length.toString()}
+            loading={overview.isLoading}
+          />
+
+          <Stat
+            icon={Server}
+            label="Mail Servers"
+            value={servers.length.toString()}
+            loading={overview.isLoading}
+          />
+
           <Stat
             icon={Activity}
             label="Mailboxes"
             value={tenants.reduce((a, t) => a + t.users, 0).toString()}
             loading={overview.isLoading}
           />
-        </div>
+
+          <Stat
+            icon={Activity}
+            label="Active Accounts"
+            value={tenants.filter((t) => t.status === "active").length.toString()}
+            loading={overview.isLoading}
+          />
+      </div>
 
 
 
@@ -131,6 +154,7 @@ function SuperAdminPage() {
                     <TableHead>Plan</TableHead>
                     <TableHead>Users</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -144,6 +168,22 @@ function SuperAdminPage() {
                       <TableCell>
                         <Badge variant={t.status === "active" ? "default" : "secondary"}>{t.status}</Badge>
                       </TableCell>
+                      <TableCell>
+                         <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                                navigate({
+                                  to: "/super-admin/$tenantId",
+                                  params: {
+                                    tenantId: t.id,
+                                  },
+                                })
+                              }
+                          >
+                            Manage
+                          </Button>
+                        </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

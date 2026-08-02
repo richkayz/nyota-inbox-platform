@@ -1,5 +1,6 @@
 import { createFileRoute, redirect, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { mailClient } from "@/lib/api/client";
 import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,15 +77,39 @@ function OnboardingPage() {
     if (step < ONBOARDING_STEPS.length) patch({ step: step + 1 });
   }
 
-  async function finish() {
-    setProvisioning(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    saveProvisionedTenant(draft);
-    clearDraft();
+async function finish() {
+  setProvisioning(true);
+
+  try {
+const tenant = await mailClient.createTenant({
+  slug: draft.slug,
+  name: draft.companyName,
+  hostname: draft.hostname,
+  allowedDomains: [draft.mailDomain],
+  plan: draft.plan,
+  mailServerId: draft.mailServerId,
+  adminEmail: draft.mailboxes.find(
+    (m) => m.role === "company_admin"
+  )
+    ? `${draft.mailboxes.find(
+        (m) => m.role === "company_admin"
+      )!.localPart}@${draft.mailDomain}`
+    : undefined,
+});
+
+    toast.success(`${draft.companyName} created successfully`);
+
+    localStorage.removeItem("nyota-onboarding-draft");
+
+    window.location.href = `/super-admin/${tenant.id}`;
+
+  } catch (e) {
+    console.error("CREATE TENANT ERROR:", e);
+toast.error((e as Error).message || "Failed to create tenant");
+  } finally {
     setProvisioning(false);
-    toast.success(`${draft.companyName} provisioned with ${draft.mailboxes.length} mailbox(es)`);
-    navigate({ to: "/super-admin" });
   }
+}
 
   return (
     <AppShell title="Tenant onboarding">

@@ -17,8 +17,9 @@ import { Route as LogoutRouteImport } from './routes/logout'
 import { Route as MailRouteImport } from './routes/mail'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as SuperAdminRouteImport } from './routes/super-admin'
 import { Route as SettingsDiagnosticsRouteImport } from './routes/settings.diagnostics'
+import { Route as SuperAdminIndexRouteImport } from './routes/super-admin/index'
+import { Route as SuperAdminTenantIdRouteImport } from './routes/super-admin/$tenantId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -60,15 +61,20 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SuperAdminRoute = SuperAdminRouteImport.update({
-  id: '/super-admin',
-  path: '/super-admin',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SettingsDiagnosticsRoute = SettingsDiagnosticsRouteImport.update({
   id: '/diagnostics',
   path: '/diagnostics',
   getParentRoute: () => SettingsRoute,
+} as any)
+const SuperAdminIndexRoute = SuperAdminIndexRouteImport.update({
+  id: '/super-admin/',
+  path: '/super-admin/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SuperAdminTenantIdRoute = SuperAdminTenantIdRouteImport.update({
+  id: '/super-admin/$tenantId',
+  path: '/super-admin/$tenantId',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -80,8 +86,9 @@ export interface FileRoutesByFullPath {
   '/mail': typeof MailRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRouteWithChildren
-  '/super-admin': typeof SuperAdminRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
+  '/super-admin/$tenantId': typeof SuperAdminTenantIdRoute
+  '/super-admin/': typeof SuperAdminIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -92,8 +99,9 @@ export interface FileRoutesByTo {
   '/mail': typeof MailRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRouteWithChildren
-  '/super-admin': typeof SuperAdminRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
+  '/super-admin/$tenantId': typeof SuperAdminTenantIdRoute
+  '/super-admin': typeof SuperAdminIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -105,8 +113,9 @@ export interface FileRoutesById {
   '/mail': typeof MailRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRouteWithChildren
-  '/super-admin': typeof SuperAdminRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
+  '/super-admin/$tenantId': typeof SuperAdminTenantIdRoute
+  '/super-admin/': typeof SuperAdminIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -119,8 +128,9 @@ export interface FileRouteTypes {
     | '/mail'
     | '/onboarding'
     | '/settings'
-    | '/super-admin'
     | '/settings/diagnostics'
+    | '/super-admin/$tenantId'
+    | '/super-admin/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -131,8 +141,9 @@ export interface FileRouteTypes {
     | '/mail'
     | '/onboarding'
     | '/settings'
-    | '/super-admin'
     | '/settings/diagnostics'
+    | '/super-admin/$tenantId'
+    | '/super-admin'
   id:
     | '__root__'
     | '/'
@@ -143,8 +154,9 @@ export interface FileRouteTypes {
     | '/mail'
     | '/onboarding'
     | '/settings'
-    | '/super-admin'
     | '/settings/diagnostics'
+    | '/super-admin/$tenantId'
+    | '/super-admin/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -156,7 +168,8 @@ export interface RootRouteChildren {
   MailRoute: typeof MailRoute
   OnboardingRoute: typeof OnboardingRoute
   SettingsRoute: typeof SettingsRouteWithChildren
-  SuperAdminRoute: typeof SuperAdminRoute
+  SuperAdminTenantIdRoute: typeof SuperAdminTenantIdRoute
+  SuperAdminIndexRoute: typeof SuperAdminIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -217,19 +230,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/super-admin': {
-      id: '/super-admin'
-      path: '/super-admin'
-      fullPath: '/super-admin'
-      preLoaderRoute: typeof SuperAdminRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings/diagnostics': {
       id: '/settings/diagnostics'
       path: '/diagnostics'
       fullPath: '/settings/diagnostics'
       preLoaderRoute: typeof SettingsDiagnosticsRouteImport
       parentRoute: typeof SettingsRoute
+    }
+    '/super-admin/': {
+      id: '/super-admin/'
+      path: '/super-admin'
+      fullPath: '/super-admin/'
+      preLoaderRoute: typeof SuperAdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/super-admin/$tenantId': {
+      id: '/super-admin/$tenantId'
+      path: '/super-admin/$tenantId'
+      fullPath: '/super-admin/$tenantId'
+      preLoaderRoute: typeof SuperAdminTenantIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
 }
@@ -255,7 +275,8 @@ const rootRouteChildren: RootRouteChildren = {
   MailRoute: MailRoute,
   OnboardingRoute: OnboardingRoute,
   SettingsRoute: SettingsRouteWithChildren,
-  SuperAdminRoute: SuperAdminRoute,
+  SuperAdminTenantIdRoute: SuperAdminTenantIdRoute,
+  SuperAdminIndexRoute: SuperAdminIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
