@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import axios from "axios";
 
 export const PLATFORM_TENANT_ID = 'platform';
 
@@ -326,4 +327,27 @@ export class TenantService {
     const used = await this.prisma.user.count({ where: { tenantId } });
     return used < tenant.mailboxLimit;
   }
+
+  async provisionTenant(tenantId: string) {
+  const tenant = await this.prisma.tenant.findUnique({
+    where: { id: tenantId },
+  });
+
+  if (!tenant) {
+    throw new Error("Tenant not found");
+  }
+
+  await axios.get(
+  `${process.env.PLESK_URL}/api/v2/server`,
+  {
+    auth: {
+      username: process.env.PLESK_USERNAME!,
+      password: process.env.PLESK_PASSWORD!,
+    },
+  },
+);
+
+console.log(`Connected to Plesk`);
 }
+}
+

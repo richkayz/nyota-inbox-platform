@@ -72,6 +72,7 @@ export class SuperAdminController {
     @Req() req: Request,
   ) {
     const tenant = await this.tenants.create(dto);
+    await this.tenants.provisionTenant(tenant.id);
     if (dto.adminEmail) {
       // The mailbox may not have signed in yet — pre-seed the row so the very
       // first login already carries COMPANY_ADMIN.
