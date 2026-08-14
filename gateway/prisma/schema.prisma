@@ -17,6 +17,7 @@ model User {
   id            String   @id @default(uuid())
   email         String   @unique
   displayName   String?
+  avatarUrl     String?  @db.VarChar(500)
   tenantId      String   @db.VarChar(64)
   role          Role     @default(USER)
   lastLoginAt   DateTime?
