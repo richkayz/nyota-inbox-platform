@@ -270,16 +270,24 @@ function MailShell() {
   }, [activeFolder, query]);
 
   // Real-time — invalidate on SSE
-  useMailEvents(
-    useCallback(
-      (folder: string, count: number) => {
-        if (folder !== activeFolder) {
-          toast(`${count} new message${count > 1 ? "s" : ""} in ${folder}`);
-        }
-      },
-      [activeFolder],
-    ),
-  );
+useMailEvents(
+  useCallback(
+    (folder: string, count: number) => {
+      const message = `${count} new message${count > 1 ? "s" : ""}`;
+
+      if (folder === activeFolder) {
+        toast.success(message, {
+          description: "Your inbox has been updated.",
+        });
+      } else {
+        toast(message, {
+          description: `New mail in ${folder}.`,
+        });
+      }
+    },
+    [activeFolder],
+  ),
+);
 
   useEffect(() => {
     if (!session) navigate({ to: "/login" });
