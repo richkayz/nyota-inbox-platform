@@ -17,6 +17,7 @@ import type {
   SseEvent,
   TenantBrandingPayload,
   TenantMe,
+  UserProfile,
 } from "./types";
 
 
@@ -180,6 +181,13 @@ export function createHttpAdapter(baseUrl: string): MailClient {
         body: JSON.stringify(input),
       }),
     platformAudit: () => request<Page<AuditRecord> | AuditRecord[]>("/super-admin/audit"),
+
+      getProfile: () => request<UserProfile>("/profile"),
+        updateProfile: (input) =>
+          request<UserProfile>("/profile", {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
 
     async diagnostics(): Promise<Diagnostics> {
       const started = Date.now();

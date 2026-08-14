@@ -12,6 +12,8 @@ import { getSession, getSessionStatus } from "@/lib/mock-auth";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { toast } from "sonner";
 import { Activity } from "lucide-react";
+import { mailClient } from "@/lib/api/client";
+import type { UserProfile } from "@/lib/api/types";
 
 export const Route = createFileRoute("/settings")({
   beforeLoad: ({ location }) => {
@@ -38,12 +40,37 @@ function SettingsPage() {
   const navigate = useNavigate();
   const session = getSession();
   const { theme, setTheme } = useTheme();
-
-  useEffect(() => {
+    useEffect(() => {
     if (!session) navigate({ to: "/login" });
   }, [session, navigate]);
 
-  const [displayName, setDisplayName] = useState(session?.displayName ?? "");
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+const [displayName, setDisplayName] = useState(session?.displayName ?? "");
+const [profileLoading, setProfileLoading] = useState(true);
+const [savingProfile, setSavingProfile] = useState(false);
+
+useEffect(() => {
+  let cancelled = false;
+
+  mailClient
+    .getProfile()
+    .then((data) => {
+      if (cancelled) return;
+      setProfile(data);
+      setDisplayName(data.displayName ?? "");
+    })
+    .catch(() => {
+      // Keep the existing session fallback if the profile request fails.
+    })
+    .finally(() => {
+      if (!cancelled) setProfileLoading(false);
+    });
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
+
   const [signature, setSignature] = useState(() => {
     if (typeof window === "undefined") return "";
     return (
@@ -85,7 +112,30 @@ function SettingsPage() {
                 <Label>Display name</Label>
                 <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
               </div>
-              <Button onClick={() => toast.success("Profile saved")}>Save profile</Button>
+              
+                <Button
+                  disabled={profileLoading || savingProfile}
+                  onClick={async () => {
+                    try {
+                      setSavingProfile(true);
+
+                      const updated = await mailClient.updateProfile({
+                        displayName,
+                      });
+
+                      setProfile(updated);
+                      setDisplayName(updated.displayName ?? "");
+                      toast.success("Profile saved");
+                    } catch (error) {
+                      toast.error(error instanceof Error ? error.message : "Failed to save profile");
+                    } finally {
+                      setSavingProfile(false);
+                    }
+                  }}
+                >
+                  {savingProfile ? "Saving..." : "Save profile"}
+                </Button>
+
             </Section>
           </TabsContent>
 

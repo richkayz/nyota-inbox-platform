@@ -232,6 +232,16 @@ export interface Diagnostics {
   };
 }
 
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  tenantId: string;
+  role: "USER" | "COMPANY_ADMIN" | "SUPER_ADMIN";
+}
+
 export interface MailClient {
   login(email: string, password: string, tenantId?: string): Promise<AuthTokens>;
   refresh(): Promise<AuthTokens>;
@@ -262,7 +272,8 @@ export interface MailClient {
   setTenantStatus(id: string, status: string): Promise<{ id: string; status: string }>;
   createMailServer(input: CreateMailServerInput): Promise<{ id?: string; name: string }>;
   platformAudit(): Promise<Page<AuditRecord> | AuditRecord[]>;
-
+  getProfile(): Promise<UserProfile>;
+  updateProfile(input: { displayName?: string }): Promise<UserProfile>;
 
 
 
