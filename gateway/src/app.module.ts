@@ -17,6 +17,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { HealthModule } from './health/health.module';
 import { TenantModule } from './tenants/tenant.module';
 import { AdminModule } from './super-admin/admin.module';
+import { ProfileModule } from './profile/profile.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { AdminModule } from './super-admin/admin.module';
     AuditModule,
     HealthModule,
     AdminModule,
+    ProfileModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
