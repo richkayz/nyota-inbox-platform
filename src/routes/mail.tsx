@@ -242,6 +242,7 @@ function MailShell() {
 
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest" | "unread">("newest");
   const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
   const searchRef = useRef<HTMLInputElement>(null);
   const listScrollRef = useRef<HTMLDivElement>(null);
@@ -308,10 +309,27 @@ function MailShell() {
     };
   }, []);
 
-  const messages: MessageListItem[] = useMemo(
-    () => messagesQ.data?.pages.flatMap((p) => p.items) ?? [],
-    [messagesQ.data],
-  );
+const messages: MessageListItem[] = useMemo(
+  () => messagesQ.data?.pages.flatMap((p) => p.items) ?? [],
+  [messagesQ.data],
+);
+
+const sortedMessages = useMemo(() => {
+  const sorted = [...messages];
+
+  if (sortOrder === "oldest") {
+    return sorted.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }
+
+  if (sortOrder === "unread") {
+    return sorted.sort((a, b) => {
+      if (a.unread !== b.unread) return a.unread ? -1 : 1;
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    });
+  }
+
+  return sorted.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}, [messages, sortOrder]);
 
   const showRecipients = useMemo(
     () => ["sent", "drafts"].includes(activeFolder.toLowerCase()) ||
@@ -645,14 +663,37 @@ function MailShell() {
               </span>
             </div>
             <div className="flex items-center gap-0.5">
-              <button
-                onClick={() => toast("Sort — coming soon")}
-                className="icon-btn h-8 w-8"
-                aria-label="Sort"
-                title="Sort"
-              >
-                <ArrowUpDown className="h-3.5 w-3.5" />
-              </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="icon-btn h-8 w-8"
+                  aria-label="Sort messages"
+                  title="Sort messages"
+                >
+                  <ArrowUpDown className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuLabel>Sort messages</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+
+                <DropdownMenuItem onClick={() => setSortOrder("newest")}>
+                  Newest first
+                  {sortOrder === "newest" && <span className="ml-auto">✓</span>}
+                </DropdownMenuItem>
+
+                <DropdownMenuItem onClick={() => setSortOrder("oldest")}>
+                  Oldest first
+                  {sortOrder === "oldest" && <span className="ml-auto">✓</span>}
+                </DropdownMenuItem>
+
+                <DropdownMenuItem onClick={() => setSortOrder("unread")}>
+                  Unread first
+                  {sortOrder === "unread" && <span className="ml-auto">✓</span>}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
               <button
                 onClick={() => setDensity((d) => (d === "comfortable" ? "compact" : "comfortable"))}
                 className="icon-btn h-8 w-8"
@@ -689,7 +730,7 @@ function MailShell() {
               <EmptyState query={query} folder={activeFolder} />
             ) : (
               <>
-                {messages.map((m) => (
+                {sortedMessages.map((m) => (
                   <MessageRow
                     key={`${m.folder}-${m.uid}`}
                     message={m}
