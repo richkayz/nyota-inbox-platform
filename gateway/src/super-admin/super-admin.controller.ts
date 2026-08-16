@@ -24,6 +24,8 @@ import {
 } from '../tenants/dto/tenant.dto';
 import { PrismaService } from '../prisma/prisma.service';
 
+import { PleskService } from '../plesk/plesk.service';
+
 /** Platform-wide console. SUPER_ADMIN only, enforced server-side. */
 @ApiTags('super-admin')
 @ApiBearerAuth()
@@ -35,6 +37,7 @@ export class SuperAdminController {
     private readonly tenants: TenantService,
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly plesk: PleskService,
   ) {}
 
   @Get('overview')
@@ -149,7 +152,10 @@ export class SuperAdminController {
     });
     return server;
   }
-
+@Get('domains')
+async listDomains() {
+  return this.plesk.listDomains();
+}
   @Get('audit')
   audits() {
     return this.audit.list(PLATFORM_TENANT_ID, 100, null);
