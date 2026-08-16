@@ -21,6 +21,7 @@ import {
   CreateTenantDto,
   UpdateBrandingDto,
   UpdateTenantStatusDto,
+  AssignPleskDomainDto,
 } from '../tenants/dto/tenant.dto';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -156,8 +157,17 @@ export class SuperAdminController {
 async listDomains() {
   return this.plesk.listDomains();
 }
-  @Get('audit')
-  audits() {
-    return this.audit.list(PLATFORM_TENANT_ID, 100, null);
-  }
+
+@Post('tenants/:id/domains')
+async assignDomain(
+  @Param('id') id: string,
+  @Body() dto: AssignPleskDomainDto,
+) {
+  return this.tenants.assignPleskDomain(id, dto.pleskDomainId);
+}
+
+@Get('audit')
+audits() {
+  return this.audit.list(PLATFORM_TENANT_ID, 100, null);
+}
 }

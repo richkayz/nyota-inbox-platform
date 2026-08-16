@@ -50,3 +50,9 @@ export class CreateMailServerDto {
   @IsOptional() @IsBoolean() smtpSecure?: boolean;
   @IsOptional() @IsString() @MaxLength(255) smtpTlsServername?: string;
 }
+
+export class AssignPleskDomainDto {
+  @IsInt()
+  @Min(1)
+  pleskDomainId!: number;
+}

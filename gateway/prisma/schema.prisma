@@ -219,9 +219,11 @@ model TenantDomain {
   id        String   @id @default(uuid())
   tenantId  String   @db.VarChar(64)
   hostname  String   @unique @db.VarChar(255)
+  pleskDomainId Int?  
   createdAt DateTime @default(now())
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
+  @@index([pleskDomainId])
 }

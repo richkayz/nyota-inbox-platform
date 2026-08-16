@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import axios from "axios";
+import { PleskService } from '../plesk/plesk.service';
 
 export const PLATFORM_TENANT_ID = 'platform';
 
@@ -42,7 +43,9 @@ export interface TenantBrandingPayload {
 export class TenantService {
   private readonly logger = new Logger(TenantService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService,
+	     private readonly plesk: PleskService,
+	     ) {}
 
   /** Normalises a Host header into a bare lowercase hostname. */
   static normalizeHost(host: string | undefined | null): string | null {
@@ -230,7 +233,43 @@ export class TenantService {
     }
     return tenant;
   }
+  async assignPleskDomain(tenantId: string, pleskDomainId: number) {
+  const tenant = await this.getOrThrow(tenantId);
 
+  const domain = (await this.plesk.getDomain(pleskDomainId)) as {
+  name?: string;
+};
+
+if (!domain?.name) {
+  throw new BadRequestException('Plesk domain was not found');
+}
+
+const hostname = domain.name.toLowerCase();
+
+
+  const existing = await this.prisma.tenantDomain.findUnique({
+    where: { hostname },
+  });
+
+  if (existing && existing.tenantId !== tenant.id) {
+    throw new BadRequestException(
+      'This domain is already assigned to another tenant',
+    );
+  }
+
+  return this.prisma.tenantDomain.upsert({
+    where: { hostname },
+    update: {
+      tenantId: tenant.id,
+      pleskDomainId,
+    },
+    create: {
+      tenantId: tenant.id,
+      hostname,
+      pleskDomainId,
+    },
+  });
+}
   async setStatus(id: string, status: string) {
     await this.getOrThrow(id);
     return this.prisma.tenant.update({ where: { id }, data: { status } });
